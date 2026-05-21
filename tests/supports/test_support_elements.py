@@ -245,6 +245,24 @@ def test_hvn_levels_contiguous_buckets_merge_into_one():
     assert levels[0].price == pytest.approx(100.0, abs=0.1)
 
 
+def test_hvn_levels_metadata_includes_bucket_range():
+    """metadata de hvn incluye rango de precio del bucket y el ancho del bucket."""
+    n = 252
+    closes = np.full(n, 100.0)
+    closes[0] = 99.5  # fija price_min
+    closes[1] = 100.5  # fija price_max
+    daily = _daily(closes)
+
+    levels = hvn_levels(daily)
+    assert len(levels) == 1
+    md = levels[0].metadata
+    expected_width = (100.5 - 99.5) / 50  # (max_52w - min_52w) / HVN_NUM_BUCKETS
+    assert md["bucket_width"] == pytest.approx(expected_width)
+    assert md["bucket_lower_price"] <= levels[0].price <= md["bucket_upper_price"]
+    span = md["bucket_upper_price"] - md["bucket_lower_price"]
+    assert span == pytest.approx((md["bucket_end"] - md["bucket_start"] + 1) * md["bucket_width"])
+
+
 def test_hvn_levels_insufficient_data():
     """Menos de 252 días → []."""
     assert hvn_levels(_daily([100.0] * 100)) == []

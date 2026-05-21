@@ -273,7 +273,13 @@ def hvn_levels(ohlcv_daily: pd.DataFrame) -> list[SupportLevel]:
                 price=float(mid),
                 element="hvn",
                 points=SCORE_OTHER_ELEMENT_POINTS,
-                metadata={"bucket_start": start, "bucket_end": k - 1},
+                metadata={
+                    "bucket_start": start,
+                    "bucket_end": k - 1,
+                    "bucket_lower_price": float(range_lo),
+                    "bucket_upper_price": float(range_hi),
+                    "bucket_width": float(delta),
+                },
             )
         )
     return levels

@@ -82,13 +82,14 @@ def test_sma_200_levels_insufficient_data():
 
 def test_polarity_levels_only_broken_resistances():
     """Solo los pivots altos por debajo del close (ya superados) generan niveles."""
+    daily = _daily([100.0] * 300)
     pivots = [
         _pivot("2026-03-01", 100.0, "high"),  # superado (100 < 120)
         _pivot("2026-03-15", 110.0, "high"),  # superado
         _pivot("2026-04-01", 130.0, "high"),  # NO superado (130 > 120)
         _pivot("2026-04-05", 95.0, "low"),  # ignorado (es low)
     ]
-    levels = polarity_levels(pivots, close_today=120.0, today=TODAY)
+    levels = polarity_levels(daily, pivots, close_today=120.0)
 
     prices = sorted(lvl.price for lvl in levels)
     assert prices == [100.0, 110.0]
@@ -96,9 +97,10 @@ def test_polarity_levels_only_broken_resistances():
 
 
 def test_polarity_levels_excludes_old_pivots():
-    """Pivot alto más viejo que 252 días calendario → excluido."""
+    """Pivot alto más viejo que 252 ruedas hábiles → excluido."""
+    daily = _daily([100.0] * 300)
     pivots = [_pivot("2024-01-01", 100.0, "high")]  # >2 años atrás
-    assert polarity_levels(pivots, close_today=120.0, today=TODAY) == []
+    assert polarity_levels(daily, pivots, close_today=120.0) == []
 
 
 # --- Fibonacci (§5.3) ---
@@ -106,36 +108,40 @@ def test_polarity_levels_excludes_old_pivots():
 
 def test_fib_levels_with_high_pivot():
     """low=100, high=150 (posterior) → fib_618=119.1, fib_786=110.7."""
+    daily = _daily([100.0] * 300)
     pivots = [
         _pivot("2026-04-01", 100.0, "low"),
         _pivot("2026-05-01", 150.0, "high"),
     ]
-    levels = {lvl.element: lvl.price for lvl in fib_levels(pivots, close_today=130.0, today=TODAY)}
+    levels = {lvl.element: lvl.price for lvl in fib_levels(daily, pivots, close_today=130.0)}
     assert levels["fib_618"] == pytest.approx(119.1)
     assert levels["fib_786"] == pytest.approx(110.7)
 
 
 def test_fib_levels_uptrend_in_progress_uses_close():
     """Sin pivot alto posterior (subida en curso) → close_today=150 como techo."""
+    daily = _daily([100.0] * 300)
     pivots = [_pivot("2026-04-01", 100.0, "low")]
-    levels = {lvl.element: lvl.price for lvl in fib_levels(pivots, close_today=150.0, today=TODAY)}
+    levels = {lvl.element: lvl.price for lvl in fib_levels(daily, pivots, close_today=150.0)}
     assert levels["fib_618"] == pytest.approx(119.1)
     assert levels["fib_786"] == pytest.approx(110.7)
 
 
 def test_fib_levels_no_low_pivot():
     """Sin pivot bajo en la ventana → []."""
+    daily = _daily([100.0] * 300)
     pivots = [_pivot("2026-05-01", 150.0, "high")]
-    assert fib_levels(pivots, close_today=130.0, today=TODAY) == []
+    assert fib_levels(daily, pivots, close_today=130.0) == []
 
 
 def test_fib_levels_degenerate_high_below_low():
     """pivot_high.price < pivot_low.price → no fue impulso alcista → []."""
+    daily = _daily([100.0] * 300)
     pivots = [
         _pivot("2026-04-01", 100.0, "low"),
         _pivot("2026-05-01", 90.0, "high"),
     ]
-    assert fib_levels(pivots, close_today=95.0, today=TODAY) == []
+    assert fib_levels(daily, pivots, close_today=95.0) == []
 
 
 # --- AVWAP (§5.4) ---
@@ -148,7 +154,7 @@ def test_avwap_levels_pivot_low_anchor():
     daily = _daily(closes, volumes=volumes)
     pivot = _pivot(daily.index[0], 10.0, "low")
 
-    levels = avwap_levels(daily, [pivot], last_earnings_date=None, today=daily.index[-1])
+    levels = avwap_levels(daily, [pivot], last_earnings_date=None)
     by_element = {lvl.element: lvl.price for lvl in levels}
     # AVWAP = (10*400 + 20*100 + 30*100 + 40*100 + 50*100) / 800 = 18000 / 800 = 22.5
     assert by_element["avwap_pivot_low"] == pytest.approx(22.5)
@@ -163,12 +169,7 @@ def test_avwap_levels_earnings_out_of_window_omitted():
     pivot = _pivot(daily.index[0], 10.0, "low")
     old_earnings = daily.index[-1] - pd.Timedelta(days=400)
 
-    levels = {
-        lvl.element
-        for lvl in avwap_levels(
-            daily, [pivot], last_earnings_date=old_earnings, today=daily.index[-1]
-        )
-    }
+    levels = {lvl.element for lvl in avwap_levels(daily, [pivot], last_earnings_date=old_earnings)}
     assert "avwap_earnings" not in levels
     assert "avwap_pivot_low" in levels
 
@@ -179,10 +180,7 @@ def test_avwap_levels_earnings_in_window_included():
     daily = _daily(closes)
     earnings = daily.index[1]  # reciente, dentro de ventana
 
-    levels = {
-        lvl.element
-        for lvl in avwap_levels(daily, [], last_earnings_date=earnings, today=daily.index[-1])
-    }
+    levels = {lvl.element for lvl in avwap_levels(daily, [], last_earnings_date=earnings)}
     assert "avwap_earnings" in levels
 
 

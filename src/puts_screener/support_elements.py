@@ -6,9 +6,9 @@ por histórico corto: ante data insuficiente devuelven `[]` para que el pipeline
 candidatos con poco histórico sin romperse.
 
 Decisiones de implementación (no explícitas en la spec):
-- Ventanas "de los últimos N días" sobre fechas de pivot/earnings se aplican como días
-  CALENDARIO (`today - pd.Timedelta(days=N)`), siguiendo el pseudocódigo de la spec. Las
-  funciones row-based (HVN, gap) usan `.iloc[-N:]` (que son N ruedas reales).
+- Las ventanas "de los últimos N días" son N días HÁBILES (ruedas), derivadas del índice del
+  OHLCV vía `_date_cutoff` (no `pd.Timedelta` calendario). Unifica el criterio con HVN/gap,
+  que ya usaban `.iloc[-N:]`. "Hoy" es siempre `ohlcv_daily.index[-1]`.
 - Las fechas en `metadata` se guardan como ISO strings para que la capa de persistencia
   (Tanda 3) pueda serializarlas a JSON sin conversión adicional.
 """
@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from puts_screener.config_supports import (
+    AVWAP_52W_HIGH_LOOKBACK_DAYS,
     AVWAP_EARNINGS_LOOKBACK_DAYS,
     DIVERGENCE_LOOKBACK_DAYS,
     FIB_LEVELS,
@@ -34,12 +35,21 @@ from puts_screener.pivots import Pivot
 
 _SMA_WEEKS = 200
 _EMA_DAYS = 200
-_HIGH_52W_LOOKBACK_DAYS = 252  # ventana del máximo de 52 semanas (ancla de AVWAP)
 
 
-def _last_low_pivot_in_window(pivots: list[Pivot], today: pd.Timestamp) -> Pivot | None:
-    """Último pivot bajo (más reciente) dentro de LAST_SWING_LOOKBACK_DAYS. None si no hay."""
-    cutoff = today - pd.Timedelta(days=LAST_SWING_LOOKBACK_DAYS)
+def _date_cutoff(ohlcv_daily: pd.DataFrame, business_days: int) -> pd.Timestamp:
+    """Fecha de corte = índice[-business_days] del OHLCV (N ruedas hábiles atrás).
+
+    Si el histórico tiene menos de `business_days` filas, devuelve el primer índice disponible.
+    """
+    if len(ohlcv_daily) >= business_days:
+        return ohlcv_daily.index[-business_days]
+    return ohlcv_daily.index[0]
+
+
+def _last_low_pivot_in_window(pivots: list[Pivot], ohlcv_daily: pd.DataFrame) -> Pivot | None:
+    """Último pivot bajo (más reciente) dentro de la ventana de swing. None si no hay."""
+    cutoff = _date_cutoff(ohlcv_daily, LAST_SWING_LOOKBACK_DAYS)
     lows = [p for p in pivots if p.kind == "low" and p.date >= cutoff]
     if not lows:
         return None
@@ -68,10 +78,10 @@ def sma_200_levels(ohlcv_daily: pd.DataFrame, ohlcv_weekly: pd.DataFrame) -> lis
 
 
 def polarity_levels(
-    pivots: list[Pivot], close_today: float, today: pd.Timestamp
+    ohlcv_daily: pd.DataFrame, pivots: list[Pivot], close_today: float
 ) -> list[SupportLevel]:
     """Resistencias rotas: pivots altos recientes que el precio ya superó (1 pt c/u)."""
-    cutoff = today - pd.Timedelta(days=LAST_PIVOT_HIGH_LOOKBACK_DAYS)
+    cutoff = _date_cutoff(ohlcv_daily, LAST_PIVOT_HIGH_LOOKBACK_DAYS)
     levels: list[SupportLevel] = []
     for pivot in pivots:
         if pivot.kind == "high" and pivot.date >= cutoff and pivot.price < close_today:
@@ -86,17 +96,19 @@ def polarity_levels(
     return levels
 
 
-def fib_levels(pivots: list[Pivot], close_today: float, today: pd.Timestamp) -> list[SupportLevel]:
+def fib_levels(
+    ohlcv_daily: pd.DataFrame, pivots: list[Pivot], close_today: float
+) -> list[SupportLevel]:
     """Retrocesos 61.8% y 78.6% del último impulso alcista significativo (§5.3).
 
     Devuelve [] si no hay pivot bajo en la ventana o si el "impulso" no fue alcista.
     Si no hay pivot alto posterior al último bajo (subida en curso), usa `close_today`.
     """
-    pivot_low_last = _last_low_pivot_in_window(pivots, today)
+    pivot_low_last = _last_low_pivot_in_window(pivots, ohlcv_daily)
     if pivot_low_last is None:
         return []
 
-    cutoff = today - pd.Timedelta(days=LAST_SWING_LOOKBACK_DAYS)
+    cutoff = _date_cutoff(ohlcv_daily, LAST_SWING_LOOKBACK_DAYS)
     highs_after = [
         p for p in pivots if p.kind == "high" and p.date >= cutoff and p.date > pivot_low_last.date
     ]
@@ -106,7 +118,7 @@ def fib_levels(pivots: list[Pivot], close_today: float, today: pd.Timestamp) -> 
         high_date = pivot_high_last.date.isoformat()
     else:  # subida en curso: proyectar fibs sobre lo subido hasta hoy
         high_price = close_today
-        high_date = today.isoformat()
+        high_date = ohlcv_daily.index[-1].isoformat()
 
     low_price = pivot_low_last.price
     if high_price <= low_price:
@@ -143,7 +155,6 @@ def avwap_levels(
     ohlcv_daily: pd.DataFrame,
     pivots: list[Pivot],
     last_earnings_date: pd.Timestamp | None,
-    today: pd.Timestamp,
 ) -> list[SupportLevel]:
     """Hasta 3 AVWAPs: desde último pivot bajo, último earnings y máximo de 52w (1 pt c/u).
 
@@ -152,7 +163,7 @@ def avwap_levels(
     """
     levels: list[SupportLevel] = []
 
-    pivot_low_last = _last_low_pivot_in_window(pivots, today)
+    pivot_low_last = _last_low_pivot_in_window(pivots, ohlcv_daily)
     if pivot_low_last is not None:
         value = _avwap_from(ohlcv_daily, pivot_low_last.date)
         if value is not None:
@@ -167,7 +178,7 @@ def avwap_levels(
 
     if last_earnings_date is not None:
         earnings_ts = pd.Timestamp(last_earnings_date)
-        if 0 <= (today - earnings_ts).days <= AVWAP_EARNINGS_LOOKBACK_DAYS:
+        if earnings_ts >= _date_cutoff(ohlcv_daily, AVWAP_EARNINGS_LOOKBACK_DAYS):
             value = _avwap_from(ohlcv_daily, earnings_ts)
             if value is not None:
                 levels.append(
@@ -179,8 +190,8 @@ def avwap_levels(
                     )
                 )
 
-    if len(ohlcv_daily) >= _HIGH_52W_LOOKBACK_DAYS:
-        window = ohlcv_daily.iloc[-_HIGH_52W_LOOKBACK_DAYS:]
+    if len(ohlcv_daily) >= AVWAP_52W_HIGH_LOOKBACK_DAYS:
+        window = ohlcv_daily.iloc[-AVWAP_52W_HIGH_LOOKBACK_DAYS:]
         anchor_date = window["High"].idxmax()
         value = _avwap_from(ohlcv_daily, anchor_date)
         if value is not None:
@@ -322,8 +333,7 @@ def divergence_levels(
     Precio hace nuevo mínimo (p2 < p1) mientras RSI o histograma MACD sube. El nivel
     "ancla" en p2.price. Lookups de osciladores vía `.asof()` por desalineación de índices.
     """
-    today = ohlcv_daily.index[-1]
-    cutoff = today - pd.Timedelta(days=DIVERGENCE_LOOKBACK_DAYS)
+    cutoff = _date_cutoff(ohlcv_daily, DIVERGENCE_LOOKBACK_DAYS)
     low_pivots = sorted(
         (p for p in pivots if p.kind == "low" and p.date >= cutoff), key=lambda p: p.date
     )

@@ -12,6 +12,7 @@ import sys
 
 from puts_screener.providers.factory import build_default_data_service
 from puts_screener.screening_pipeline import run_screening
+from puts_screener.support_pipeline import run_support_detection
 from puts_screener.universe_builder import build_universe
 
 
@@ -24,6 +25,11 @@ def main() -> int:
     parser.add_argument("--max-workers", type=int, default=8, help="Parallel workers (default: 8)")
     parser.add_argument(
         "--limit", type=int, default=None, help="Limit universe to N tickers (for testing)"
+    )
+    parser.add_argument(
+        "--skip-support-detection",
+        action="store_true",
+        help="Skip Paso 2 (support detection); run only Paso 1 filters",
     )
     args = parser.parse_args()
 
@@ -43,12 +49,28 @@ def main() -> int:
 
     data_service = build_default_data_service()
 
-    run_id, _candidates = run_screening(
+    run_id, candidates = run_screening(
         universe=universe,
         data_service=data_service,
         max_workers=args.max_workers,
         persist=not args.no_persist,
     )
+
+    if not args.skip_support_detection:
+        run_id, supported = run_support_detection(
+            screened_candidates=candidates,
+            data_service=data_service,
+            max_workers=args.max_workers,
+            persist=not args.no_persist,
+            run_id=run_id,
+        )
+        n_paso_2 = sum(1 for s in supported if s.pasa_paso_2)
+        logger.info("=" * 60)
+        logger.info("PIPELINE SUMMARY")
+        logger.info(
+            "  Passed Paso 1 (filtros): %d", sum(1 for c in candidates if c.pasa_filtros_paso_1)
+        )
+        logger.info("  Passed Paso 2 (soporte fuerte): %d", n_paso_2)
 
     if run_id:
         logger.info("Results in data/screening_history.db, run_id=%s", run_id)

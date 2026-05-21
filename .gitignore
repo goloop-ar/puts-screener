@@ -43,3 +43,8 @@ htmlcov/
 
 # Provider cache (regenerable, transitorio)
 data/cache/
+
+# Local notes and source documents (not versioned)
+*.docx
+*.txt
+!requirements.txt

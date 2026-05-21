@@ -1,19 +1,7 @@
-"""Fixtures comunes y bootstrap del path de `src` para la suite de tests.
-
-`src` se agrega a `sys.path` acá (en lugar de instalar el paquete) para que
-`pytest -v` corra desde la raíz sin un paso de instalación editable. La inserción
-ocurre al importar este conftest, antes de que pytest importe los módulos de test.
-"""
-
-import sys
-from pathlib import Path
+"""Fixtures comunes para la suite de tests de puts_screener."""
 
 import pandas as pd
 import pytest
-
-_SRC = Path(__file__).resolve().parents[1] / "src"
-if str(_SRC) not in sys.path:
-    sys.path.insert(0, str(_SRC))
 
 
 @pytest.fixture

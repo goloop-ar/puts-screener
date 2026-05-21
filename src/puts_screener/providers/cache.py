@@ -98,9 +98,7 @@ def write_cache(category: str, key: str, data: Any) -> None:
         write_json(path, data)
 
 
-def read_ohlcv_slice(
-    ticker: str, interval: str, start: date, end: date
-) -> pd.DataFrame | None:
+def read_ohlcv_slice(ticker: str, interval: str, start: date, end: date) -> pd.DataFrame | None:
     """Devuelve el slice [start, end] del OHLCV cacheado si lo cubre, sino None.
 
     Devuelve None (miss) si el cache no existe, está stale, está vacío, o el

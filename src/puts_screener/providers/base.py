@@ -34,7 +34,7 @@ _PROVIDER_METHODS = frozenset(
 )
 
 
-class DataProvider(ABC):
+class DataProvider(ABC):  # noqa: B024
     """Contrato común a todas las fuentes de datos.
 
     Cada método no implementado por una subclase lanza NotSupportedError.
@@ -43,9 +43,7 @@ class DataProvider(ABC):
 
     name: str = "abstract"
 
-    def get_ohlcv(
-        self, ticker: str, start: date, end: date, interval: str = "1d"
-    ) -> pd.DataFrame:
+    def get_ohlcv(self, ticker: str, start: date, end: date, interval: str = "1d") -> pd.DataFrame:
         raise NotSupportedError(f"{self.name} no soporta get_ohlcv")
 
     def get_company_profile(self, ticker: str) -> CompanyProfile:
@@ -57,9 +55,7 @@ class DataProvider(ABC):
     def get_analyst_data(self, ticker: str) -> AnalystData:
         raise NotSupportedError(f"{self.name} no soporta get_analyst_data")
 
-    def get_rating_changes(
-        self, ticker: str, lookback_weeks: int = 6
-    ) -> list[RatingChange]:
+    def get_rating_changes(self, ticker: str, lookback_weeks: int = 6) -> list[RatingChange]:
         raise NotSupportedError(f"{self.name} no soporta get_rating_changes")
 
     def get_upcoming_earnings(

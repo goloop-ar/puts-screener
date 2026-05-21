@@ -86,6 +86,11 @@ def _macd_histogram(close: pd.Series) -> pd.Series:
     return macd_line - signal_line
 
 
+def macd_hist_series(ohlcv_daily: pd.DataFrame) -> pd.Series:
+    """Serie completa del histograma MACD (12/26/9) — para detección de divergencias."""
+    return _macd_histogram(ohlcv_daily["Close"])
+
+
 def macd_state(
     ohlcv_daily: pd.DataFrame,
     lookback_days: int = 3,
@@ -114,16 +119,20 @@ def macd_state(
     return f"{direction}_{sign}"
 
 
-def atr_14(ohlcv_daily: pd.DataFrame) -> float:
-    """Último valor del ATR de 14 días (Wilder)."""
+def atr_series(ohlcv_daily: pd.DataFrame, length: int = _ATR_LENGTH) -> pd.Series:
+    """Serie completa del ATR (Wilder) — para detección de pivots y clustering de zonas."""
     high = ohlcv_daily["High"]
     low = ohlcv_daily["Low"]
     prev_close = ohlcv_daily["Close"].shift(1)
     true_range = pd.concat(
         [high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1
     ).max(axis=1)
-    atr = true_range.ewm(alpha=1 / _ATR_LENGTH, adjust=False).mean()
-    return float(atr.iloc[-1])
+    return true_range.ewm(alpha=1 / length, adjust=False).mean()
+
+
+def atr_14(ohlcv_daily: pd.DataFrame) -> float:
+    """Último valor del ATR de 14 días (Wilder)."""
+    return float(atr_series(ohlcv_daily, _ATR_LENGTH).iloc[-1])
 
 
 def hv_percentile_52w(ohlcv_daily: pd.DataFrame) -> float:

@@ -8,6 +8,10 @@ cualquier módulo del paquete.
 MIN_MARKET_CAP_USD: float = 10_000_000_000.0
 MIN_AVG_DAILY_VOLUME: float = 1_000_000.0
 MIN_FCF_TTM: float = 0.0
+# Sectores capital-intensivos o con estructura financiera distinta — el FCF tradicional no es
+# proxy válido de salud operativa. Se les skipea el chequeo de FCF≤0 manteniendo intactos market
+# cap y volumen.
+SECTORS_FCF_FILTER_EXEMPT: set[str] = {"Utilities", "Financial Services", "Real Estate"}
 
 # === Filtros de valoración ===
 MIN_PRICE_TARGET_UPSIDE: float = 0.0

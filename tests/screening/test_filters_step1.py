@@ -54,6 +54,21 @@ def test_filter_quality_liquidity_fails_none_values(neutral_candidate):
     assert passes is False
 
 
+def test_filter_quality_liquidity_exempts_fcf_for_utilities(neutral_candidate):
+    _with_profile(neutral_candidate, sector="Utilities")
+    _with_financials(neutral_candidate, free_cash_flow_ttm=-1e9)
+    # market cap y volumen siguen OK (defaults del neutral) → debe pasar pese a FCF<0
+    assert filter_quality_liquidity(neutral_candidate) == (True, None)
+
+
+def test_filter_quality_liquidity_keeps_fcf_for_non_exempt_sector(neutral_candidate):
+    _with_profile(neutral_candidate, sector="Technology")
+    _with_financials(neutral_candidate, free_cash_flow_ttm=-1e9)
+    passes, reason = filter_quality_liquidity(neutral_candidate)
+    assert passes is False
+    assert "FCF" in reason
+
+
 # --- valuation ---
 
 

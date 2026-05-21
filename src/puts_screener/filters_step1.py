@@ -23,6 +23,7 @@ from puts_screener.config_filters import (
     RSI_DAILY_THRESHOLD,
     RSI_OVERBOUGHT_THRESHOLD,
     RSI_WEEKLY_THRESHOLD,
+    SECTORS_FCF_FILTER_EXEMPT,
 )
 from puts_screener.models_screening import ScreenedCandidate
 
@@ -87,7 +88,8 @@ def filter_quality_liquidity(candidate: ScreenedCandidate) -> tuple[bool, str | 
         return False, f"avg daily volume ({vol}) < {MIN_AVG_DAILY_VOLUME:.0f}"
 
     fcf = candidate.financials.free_cash_flow_ttm
-    if fcf is None or fcf <= MIN_FCF_TTM:
+    sector = candidate.profile.sector
+    if sector not in SECTORS_FCF_FILTER_EXEMPT and (fcf is None or fcf <= MIN_FCF_TTM):
         return False, f"FCF TTM ({fcf}) ≤ {MIN_FCF_TTM}"
 
     return True, None

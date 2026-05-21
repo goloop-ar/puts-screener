@@ -57,8 +57,11 @@ Una fila por candidato que pasa todos los filtros. Columnas mínimas:
 - `score_soporte`, `elementos_score` (lista textual de qué sumó)
 - `rsi_diario`, `rsi_semanal`, `macd_estado`
 - `sma50w_sobre_sma200w` (bool)
-- `price_target_consensus`, `price_target_upside_pct`, `recommendation_score`
-- `downgrades_6w`, `earnings_proximas_30d` (bool y fecha)
+- `price_target_consensus`, `price_target_upside_pct`, `recommendation_mean`
+- `downgrades_6w`
+- `earnings_date` (fecha o NULL)
+- `dias_a_earnings` (int o NULL)
+- `earnings_en_45d` (bool)
 - `hv_percentile_52w`
 
 ### 4.2 HTML report (`output/screening_YYYY-MM-DD.html`)

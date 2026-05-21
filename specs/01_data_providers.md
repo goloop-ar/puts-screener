@@ -134,6 +134,8 @@ class DataProvider(ABC):
         ...
 ```
 
+**Nota sobre ventanas de earnings**: aunque `get_upcoming_earnings` mira por defecto 60 días hacia adelante (margen), el filtro del SOP usa una ventana de 45 días (alineado al Paso 3). La capa de aplicación deriva tres campos a partir del `EarningsEvent` retornado: `earnings_date` (date | None), `dias_a_earnings` (int | None) y `earnings_en_45d` (bool).
+
 ## 5. Providers concretos
 
 ### 5.1 `StooqProvider` (`providers/stooq.py`)
@@ -167,6 +169,9 @@ class DataProvider(ABC):
 - **Endpoints**:
   - `get_company_profile` → `client.company_profile2(symbol=...)`. Mapeo: `marketCapitalization` viene en millones USD → multiplicar × 1e6.
   - `get_analyst_data` → `client.recommendation_trends(symbol=...)` (más reciente) + `client.price_target(symbol=...)`. Combinar en un solo `AnalystData`.
+    - `recommendation_mean` se **computa** desde los counts (Finnhub no lo provee directo):  
+      `mean = (1·strong_buy + 2·buy + 3·hold + 4·sell + 5·strong_sell) / total_count`  
+      Si `total_count == 0`, queda `None`.
   - `get_rating_changes` → `client.upgrade_downgrade(symbol=..., from_=..., to=...)` con rango = hoy - lookback_weeks. Mapear acciones.
   - `get_upcoming_earnings` → `client.earnings_calendar(_from=hoy, to=hoy+lookforward_days, symbol=...)`.
 - **Rate limit**: 60 req/min en free tier. Usar `RateLimiter` (§9) en cada llamada.
@@ -285,6 +290,13 @@ data/cache/
 | ratings | 24h |
 | earnings | 24h |
 
+**Política específica de OHLCV**: el archivo `ohlcv/{ticker}_{interval}.parquet` contiene una ventana rolling de los **últimos N días hábiles desde la última fetch** (N=800 por default, ≈3 años, holgado para SMA200W). Comportamiento de `get_ohlcv(ticker, start, end, interval)`:
+
+1. Si el cache existe, está fresh (TTL 24h) y `[start, end]` cae dentro del rango cacheado: devolver `cache.df.loc[start:end]`.
+2. En otro caso: refetch los últimos N días desde el provider, persistir, devolver slice de `[start, end]`.
+
+El cache key **no** incluye `start`/`end`. La ventana es interna del cache.
+
 **API**:
 
 ```python
@@ -386,7 +398,7 @@ tests/
 - [ ] `DataService` con fallback funcionando
 - [ ] Cache en parquet/JSON con TTL
 - [ ] RateLimiter para Finnhub
-- [ ] Normalización de tickers para US + 13 exchanges europeos
+- [ ] Normalización de tickers para US + 14 exchanges europeos
 - [ ] Suite de tests pasa: `pytest -v` con 0 errores
 - [ ] `ruff check src/ tests/` sin issues
 - [ ] Smoke test corre limpio para los 4 tickers de referencia
@@ -433,5 +445,5 @@ tests/
 
 - **Sync vs async**: sync. Para batch diario con paralelismo opcional vía thread pool, alcanza. Async se considera si la corrida pasa de 30 min.
 - **Cache en disco vs memoria**: disco. Sobrevive a reinicios y a GitHub Actions ephemeral runners (cuando lleguemos a esa fase, el repo lleva el cache).
-- **Manejo de Europa**: cobertura inicial 13 exchanges. Si aparecen necesidades de Stoxx no cubiertos (Praga, Varsovia, Atenas), se agregan a la tabla.
+- **Manejo de Europa**: cobertura inicial 14 exchanges. Si aparecen necesidades de Stoxx no cubiertos (Praga, Varsovia, Atenas), se agregan a la tabla.
 - **Tickers ADR**: por ahora se tratan como US. Los duals listings europeos se identifican por el sufijo.

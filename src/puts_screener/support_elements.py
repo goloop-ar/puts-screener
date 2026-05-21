@@ -90,7 +90,7 @@ def polarity_levels(
                     price=pivot.price,
                     element="polarity",
                     points=SCORE_OTHER_ELEMENT_POINTS,
-                    metadata={"pivot_date": pivot.date.isoformat()},
+                    metadata={"pivot_date": pivot.date.date().isoformat()},
                 )
             )
     return levels
@@ -115,10 +115,10 @@ def fib_levels(
     if highs_after:
         pivot_high_last = max(highs_after, key=lambda p: p.date)
         high_price = pivot_high_last.price
-        high_date = pivot_high_last.date.isoformat()
+        high_date = pivot_high_last.date.date().isoformat()
     else:  # subida en curso: proyectar fibs sobre lo subido hasta hoy
         high_price = close_today
-        high_date = ohlcv_daily.index[-1].isoformat()
+        high_date = ohlcv_daily.index[-1].date().isoformat()
 
     low_price = pivot_low_last.price
     if high_price <= low_price:
@@ -126,7 +126,7 @@ def fib_levels(
 
     swing_range = high_price - low_price
     metadata = {
-        "low_date": pivot_low_last.date.isoformat(),
+        "low_date": pivot_low_last.date.date().isoformat(),
         "high_date": high_date,
         "low_price": low_price,
         "high_price": high_price,
@@ -177,7 +177,7 @@ def avwap_levels(
                     price=value,
                     element="avwap_pivot_low",
                     points=SCORE_OTHER_ELEMENT_POINTS,
-                    metadata={"anchor_date": pivot_low_last.date.isoformat()},
+                    metadata={"anchor_date": pivot_low_last.date.date().isoformat()},
                 )
             )
 
@@ -191,7 +191,7 @@ def avwap_levels(
                         price=value,
                         element="avwap_earnings",
                         points=SCORE_OTHER_ELEMENT_POINTS,
-                        metadata={"anchor_date": earnings_ts.isoformat()},
+                        metadata={"anchor_date": earnings_ts.date().isoformat()},
                     )
                 )
 
@@ -205,7 +205,7 @@ def avwap_levels(
                     price=value,
                     element="avwap_52w_high",
                     points=SCORE_OTHER_ELEMENT_POINTS,
-                    metadata={"anchor_date": pd.Timestamp(anchor_date).isoformat()},
+                    metadata={"anchor_date": pd.Timestamp(anchor_date).date().isoformat()},
                 )
             )
 
@@ -312,7 +312,7 @@ def gap_levels(ohlcv_daily: pd.DataFrame) -> list[SupportLevel]:
                 element="gap_unfilled",
                 points=SCORE_OTHER_ELEMENT_POINTS,
                 metadata={
-                    "gap_date": dates[d].isoformat(),
+                    "gap_date": dates[d].date().isoformat(),
                     "gap_lower": float(gap_lower),
                     "gap_upper": float(gap_upper),
                 },
@@ -370,8 +370,8 @@ def divergence_levels(
             points=SCORE_OTHER_ELEMENT_POINTS,
             metadata={
                 "oscillator": oscillator,
-                "p1_date": p1.date.isoformat(),
-                "p2_date": p2.date.isoformat(),
+                "p1_date": p1.date.date().isoformat(),
+                "p2_date": p2.date.date().isoformat(),
             },
         )
     ]

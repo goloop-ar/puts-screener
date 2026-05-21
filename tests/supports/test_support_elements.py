@@ -4,6 +4,8 @@ Fixtures sintéticas en código. Los valores esperados están verificados a mano
 explícitos en las aserciones), no recalculados con la fórmula del código.
 """
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -338,3 +340,41 @@ def test_divergence_levels_needs_two_pivots():
     rsi = pd.Series(40.0, index=daily.index)
     macd = pd.Series(0.0, index=daily.index)
     assert divergence_levels(daily, pivots, rsi, macd, close_today=90.0) == []
+
+
+# --- formato de fechas en metadata ---
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def test_metadata_dates_are_date_only():
+    """Todas las fechas en metadata son YYYY-MM-DD (sin parte de tiempo)."""
+    daily = _daily([100.0] * 300)
+    pivots = [
+        _pivot("2026-04-01", 100.0, "low"),
+        _pivot("2026-05-01", 150.0, "high"),
+    ]
+
+    for lvl in polarity_levels(daily, pivots, close_today=160.0):
+        assert _DATE_RE.match(lvl.metadata["pivot_date"]), lvl.metadata["pivot_date"]
+
+    for lvl in fib_levels(daily, pivots, close_today=130.0):
+        assert _DATE_RE.match(lvl.metadata["low_date"]), lvl.metadata["low_date"]
+        assert _DATE_RE.match(lvl.metadata["high_date"]), lvl.metadata["high_date"]
+
+    gap_daily = _daily(
+        [100.0, 100.0, 99.0, 111.0, 112.0, 113.0],
+        highs=[101.0, 101.0, 100.0, 112.0, 113.0, 114.0],
+        lows=[99.0, 99.0, 98.0, 110.0, 111.0, 112.0],
+    )
+    gaps = gap_levels(gap_daily)
+    assert gaps
+    for lvl in gaps:
+        assert _DATE_RE.match(lvl.metadata["gap_date"]), lvl.metadata["gap_date"]
+
+    av_daily = _daily([10.0, 20.0, 30.0, 40.0, 50.0])
+    av_pivot = _pivot(av_daily.index[0], 10.0, "low")
+    avwaps = avwap_levels(av_daily, [av_pivot], last_earnings_date=None)
+    assert avwaps
+    for lvl in avwaps:
+        assert _DATE_RE.match(lvl.metadata["anchor_date"]), lvl.metadata["anchor_date"]

@@ -28,10 +28,16 @@
 - [x] Fix de dependencia: `lxml` agregado para `get_historical_earnings`
 - [x] Smoke test del pipeline: 7 tickers en 15s, MSFT pasó filtros
 
+### Refinamientos post-spec 02 ✅
+
+- [x] Exención de FCF para sectores capital-intensivos (Utilities, Financial Services, Real Estate). Issue 2.1 cerrado.
+- [x] Gate de clasificación T1-T4 al final de `apply_step1_filters` (alinea con spec 02 §1). Issue 2.4 cerrado.
+- [x] Techo HV elevado de 80 a 90 con nota de reversión cuando se integre IV real. Issue 2.2 cerrado.
+
 ### Estadísticas
 
-- **Tests**: 212 verdes
-- **Commits**: 16
+- **Tests**: 215 verdes
+- **Commits**: 19
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -39,37 +45,7 @@
 
 ## 2. En vuelo (issues abiertos)
 
-### 2.1 FCF negativo para bancos
-
-**Contexto**: en el smoke test de 7 tickers, JPM (T1 candidato fuerte) fue rechazado por `filter_quality_liquidity` con razón "FCF TTM (-14.7B) ≤ 0". El SOP excluye empresas con FCF negativo, pero los bancos no se miden con FCF tradicional (su modelo de negocio es distinto: el "cash flow" de un banco viene de depósitos, préstamos, trading).
-
-**Opciones consideradas**:
-- (a) Skipear el chequeo de FCF cuando `profile.sector == "Financial Services"` o similar.
-- (b) Eximir solo a sub-sectores específicos (bancos, aseguradoras, no fintechs).
-- (c) Usar una métrica alternativa para financieros (ROE, ROA, NIM) — más trabajo.
-- (d) Aceptar la pérdida y excluir financieros del MVP.
-
-**Estado**: pendiente decisión.
-
-### 2.2 HV Percentile excluyendo demasiado
-
-**Contexto**: en el smoke de 7 tickers, 3 fueron rechazados por `HV > 80` (SAP.DE 88.9, NESN.SW 89.7, NVDA 95.2). El SOP excluye IVP > 80 por "evento binario probable", pero T2 (pánico) se dispara justamente cuando la volatilidad está alta.
-
-**Opciones consideradas**:
-- (a) Subir el techo de 80 a 90 (más permisivo).
-- (b) Eximir del filtro HV a candidatos de tipo T2 (T2 esperá HV alto).
-- (c) Hacer el filtro HV "soft" (advertencia en lugar de rechazo), filtrar al ranking final.
-
-**Estado**: pendiente decisión. Requiere data empírica de muestra más grande antes de decidir.
-
-### 2.3 Validación con muestra más grande
-
-Antes de tocar thresholds (issues 2.1 y 2.2), correr `python -m puts_screener.run --limit 50 --no-persist` para ver:
-- Tasa de aprobación real (cuántos candidatos pasan de 50).
-- Distribución de motivos_rechazo (cuáles son los filtros que más rechazan).
-- Distribución de momentum_score entre los que pasan.
-
-Esto debería ser el **primer paso del próximo día de trabajo**, antes de cualquier decisión.
+Sin issues abiertos. Lista para avanzar a spec 03.
 
 ---
 
@@ -77,10 +53,7 @@ Esto debería ser el **primer paso del próximo día de trabajo**, antes de cual
 
 ### 3.1 Inmediato (próxima sesión)
 
-1. **Validar con `--limit 50 --no-persist`** — recopilar evidencia empírica.
-2. **Decidir issues 2.1 y 2.2** con criterio basado en la evidencia.
-3. **Implementar ajustes** (un mini-prompt por cada decisión).
-4. **Smoke test del pipeline completo** post-ajustes.
+Arrancar spec 03 — Detección de soportes y scoring de confluencia (Paso 2 del SOP). El detalle ya está en §3.2.
 
 ### 3.2 Spec 03 — Detección de Soportes y Scoring (Paso 2 del SOP)
 
@@ -130,6 +103,9 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Soporte para más exchanges EU**: agregar Polonia, Grecia, Israel cuando aparezcan candidatos interesantes ahí (hoy quedan skipeados).
 - **Volume Profile real con intradiario**: requiere data de minutos, no EOD. Postergar hasta Fase 4 (con IBKR o paid provider).
 - **Activar Stooq como fallback de OHLCV**: requiere conseguir API key (captcha manual). Solo si yfinance empieza a fallar consistentemente.
+- **Caracterizar el filtro de valoración (Issue 2.5 candidato)**: con HV y FCF aliviados, valuation pasó a ser el filtro que más rechaza (79/200 en run de validación). Si después de spec 03 el throughput queda bajo, desglosar sub-causas (upside vs buy ratio vs downgrades) y ajustar.
+- **Extender SECTORS_FCF_FILTER_EXEMPT a Basic Materials/Industrials (Issue 2.6 candidato)**: el run de 200 dejó fuera 5 nombres por FCF≤0, de los cuales algunos son capital-intensivos en ciclo de capex (química, minería, autos). Decidir caso por caso con evidencia más amplia antes de extender.
+- **Suavizar condición spot > SMA200W en T1 (Issue 2.7 candidato)**: 6 candidatos en el run de 200 quedaron fuera por estar apenas debajo de la 200W. Evaluar si correcciones que perforan brevemente la 200W deberían seguir clasificando como T1. Toca core de clasificación, requiere análisis cuidadoso.
 
 ---
 
@@ -146,6 +122,9 @@ Para no buscarlas en specs:
 - **Indicadores a mano**: numpy/pandas puro, sin `pandas_ta` (problemas con numpy 2 / pandas 3).
 - **Parsing de Wikipedia con `bs4` + `html.parser`** (builtin), no `pandas.read_html` (requería lxml en su momento; ahora lo agregamos pero ya está hecho con bs4).
 - **Universe builder con cache 7 días**: Wikipedia es estable, no hace falta refetch diario.
+- **2026-05-21 — Exención de FCF por sector (Utilities, Financial Services, Real Estate)**: el filtro de FCF≤0 del SOP no es proxy válido de salud en sectores capital-intensivos o con estructura financiera distinta. Reversible/extensible vía `SECTORS_FCF_FILTER_EXEMPT` en `config_filters.py`.
+- **2026-05-21 — Gate de clasificación T1-T4 al final del Paso 1**: un candidato sin tipo asignado se rechaza con motivo "sin clasificación T1-T4". Cierra un gap entre spec 02 §1 y la implementación previa.
+- **2026-05-21 — Techo HV elevado de 80 a 90 hasta integrar IV real**: la HV (volatilidad realizada) corre estructuralmente más alta que IV percentile en el universo actual; mantener el techo en 80 generaba 22 falsos rechazos en run de 50. Reversible cuando se integre data de opciones (Fase 4).
 
 ---
 

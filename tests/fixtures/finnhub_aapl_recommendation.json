@@ -1,0 +1,4 @@
+[
+    {"symbol": "AAPL", "period": "2024-01-01", "strongBuy": 20, "buy": 15, "hold": 8, "sell": 2, "strongSell": 1},
+    {"symbol": "AAPL", "period": "2023-12-01", "strongBuy": 18, "buy": 16, "hold": 9, "sell": 2, "strongSell": 1}
+]

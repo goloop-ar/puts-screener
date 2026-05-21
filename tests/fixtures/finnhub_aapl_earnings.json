@@ -1,0 +1,14 @@
+{
+    "earningsCalendar": [
+        {
+            "date": "2024-02-01",
+            "epsActual": null,
+            "epsEstimate": 2.1,
+            "hour": "amc",
+            "quarter": 1,
+            "symbol": "AAPL",
+            "year": 2024,
+            "revenueEstimate": 118000000000
+        }
+    ]
+}

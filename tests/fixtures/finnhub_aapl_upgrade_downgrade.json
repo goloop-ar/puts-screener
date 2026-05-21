@@ -1,0 +1,4 @@
+[
+    {"symbol": "AAPL", "gradeTime": 1704240000, "company": "Morgan Stanley", "fromGrade": "Hold", "toGrade": "Buy", "action": "up"},
+    {"symbol": "AAPL", "gradeTime": 1703980800, "company": "Goldman Sachs", "fromGrade": "Buy", "toGrade": "Hold", "action": "down"}
+]

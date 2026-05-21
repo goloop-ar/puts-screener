@@ -34,10 +34,18 @@
 - [x] Gate de clasificación T1-T4 al final de `apply_step1_filters` (alinea con spec 02 §1). Issue 2.4 cerrado.
 - [x] Techo HV elevado de 80 a 90 con nota de reversión cuando se integre IV real. Issue 2.2 cerrado.
 
+### Spec 03 — Detección de soportes y scoring (Paso 2) ✅ Cerrada
+
+- [x] **Tanda 1**: módulo de constantes (`config_supports`), 4 dataclasses (`SupportLevel`, `SupportZone`, `SupportAnalysis`, `SupportedCandidate`), detección de pivots con filtro de profundidad por ATR.
+- [x] **Tanda 2**: 7 elementos del score (SMA200, polaridad, fibs, AVWAP triple anclaje, HVN aproximado, gap, divergencia) + clustering por proximidad con dedup por categoría.
+- [x] **Tanda 3**: validación y ranking de zonas, pipeline paralelo, persistencia con tabla `support_zones` + migración idempotente de `candidates.pasa_paso_2`, integración en `run.py`, smoke test.
+- [x] **Cleanup intermedio**: ventanas de lookback unificadas a días hábiles (helper `_date_cutoff`), constante 52w movida a `config_supports`, fix de `has_dynamic_confirmer` para sub-variantes de AVWAP.
+- [x] **Validación empírica**: run `--limit 200` sin persistir → 33 pasan Paso 1, 23 pasan Paso 2 (69.7%), 7 con score ≥ 6. Persistencia real con dos runs consecutivos verificada (migración idempotente funciona).
+
 ### Estadísticas
 
-- **Tests**: 215 verdes
-- **Commits**: 19
+- **Tests**: 263 verdes
+- **Commits**: 44
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -45,7 +53,7 @@
 
 ## 2. En vuelo (issues abiertos)
 
-Sin issues abiertos. Lista para avanzar a spec 03.
+Sin issues abiertos. Lista para spec 04.
 
 ---
 
@@ -53,38 +61,22 @@ Sin issues abiertos. Lista para avanzar a spec 03.
 
 ### 3.1 Inmediato (próxima sesión)
 
-Arrancar spec 03 — Detección de soportes y scoring de confluencia (Paso 2 del SOP). El detalle ya está en §3.2.
+Arrancar spec 04 — Reportes (CSV + HTML) + Paso 3 del SOP (eventos binarios). Detalle en §3.2.
 
-### 3.2 Spec 03 — Detección de Soportes y Scoring (Paso 2 del SOP)
-
-Es la parte algorítmicamente más densa del SOP. Cubre:
-- Detección de pivots / swings significativos en OHLCV.
-- Identificación del último impulso → niveles fib 61.8% y 78.6%.
-- Resistencias rotas (polaridad).
-- Gaps alcistas no cerrados.
-- Anchored VWAP (desde último mínimo significativo y desde último earnings).
-- HVN aproximado (histograma de volumen por bucket de precio).
-- Divergencias RSI/MACD vs precio.
-- Score de confluencia (suma ponderada).
-- Filtro final: precio dentro del 10% de soporte con score ≥ 3.
-
-**Entrada**: lista de `ScreenedCandidate` que pasaron Paso 1.
-**Salida**: misma lista pero solo los que califican por soporte fuerte.
-
-### 3.3 Spec 04 — Reportes y Eventos
+### 3.2 Spec 04 — Reportes y Eventos
 
 - Generación de CSV detallado por corrida.
 - HTML report top 20 con mini-charts.
 - Paso 3 del SOP (check de eventos binarios completo).
 
-### 3.4 Fase 3 — Producción
+### 3.3 Fase 3 — Producción
 
 - GitHub Actions con cron diario post-cierre US.
 - Publicación de HTML a GitHub Pages.
 - Auto-commit de outputs al repo.
 - Notificación Telegram opcional.
 
-### 3.5 Fase 4 — Opciones (futuro lejano)
+### 3.4 Fase 4 — Opciones (futuro lejano)
 
 - Integración con data de opciones (paid).
 - Paso 4 del SOP (selección de strike, delta, prima, yield, gestión de salida).
@@ -106,6 +98,9 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Caracterizar el filtro de valoración (Issue 2.5 candidato)**: con HV y FCF aliviados, valuation pasó a ser el filtro que más rechaza (79/200 en run de validación). Si después de spec 03 el throughput queda bajo, desglosar sub-causas (upside vs buy ratio vs downgrades) y ajustar.
 - **Extender SECTORS_FCF_FILTER_EXEMPT a Basic Materials/Industrials (Issue 2.6 candidato)**: el run de 200 dejó fuera 5 nombres por FCF≤0, de los cuales algunos son capital-intensivos en ciclo de capex (química, minería, autos). Decidir caso por caso con evidencia más amplia antes de extender.
 - **Suavizar condición spot > SMA200W en T1 (Issue 2.7 candidato)**: 6 candidatos en el run de 200 quedaron fuera por estar apenas debajo de la 200W. Evaluar si correcciones que perforan brevemente la 200W deberían seguir clasificando como T1. Toca core de clasificación, requiere análisis cuidadoso.
+- **Divergencia RSI/MACD aparece en 0% de las best_zones (validación spec 03)**: coherente con el filtro previo de no-sobrecompra que excluye candidatos en corrección profunda. No es bug del código sino consecuencia del pipeline. Si se baja en el futuro el threshold de tendencia, revisar si las divergencias emergen como elemento útil.
+- **EMA200D domina sobre SMA200W como elemento de score (12 vs 3 apariciones en run de 200)**: coherente con T1 saludable (cerca de EMA200D pero por encima de SMA200W). No requiere acción, anotado por trazabilidad.
+- **Mejorar HVN con datos intradía (Fase 4)**: la aproximación uniforme actual cumple el MVP. Para mejorar la precisión del Volume Profile, integrar datos de minutos cuando se sume un provider con esa capacidad (e.g. IBKR, paid).
 
 ---
 
@@ -127,6 +122,9 @@ Para no buscarlas en specs:
 - **2026-05-21 — Techo HV elevado de 80 a 90 hasta integrar IV real**: la HV (volatilidad realizada) corre estructuralmente más alta que IV percentile en el universo actual; mantener el techo en 80 generaba 22 falsos rechazos en run de 50. Reversible cuando se integre data de opciones (Fase 4).
 - **2026-05-21 — Spec 03 §6.1, `has_dynamic_confirmer` corregido en implementación**: el pseudocódigo de la spec usa `e.element in DYNAMIC_CONFIRMERS` con `DYNAMIC_CONFIRMERS = ('avwap', 'hvn', 'divergence')`, pero los elementos AVWAP se llaman `avwap_pivot_low`/`avwap_earnings`/`avwap_52w_high`. La implementación introdujo el helper `_is_dynamic_confirmer()` que mapea sub-variantes de AVWAP a la categoría 'avwap' antes de chequear, consistente con `compute_zone_score`. Sin esto, ninguna zona confirmada solo por AVWAP pasaría la validación de §7.
 - **2026-05-21 — Spec 03 ventanas de lookback unificadas a días hábiles**: el documento usa '252 días' como shorthand de '12 meses hábiles'. La implementación inicial mezcló días calendario (`Timedelta`) en algunas funciones con `.iloc[-252:]` en otras. Se unificó a 252 días hábiles derivando el corte del índice del OHLCV (helper `_date_cutoff`). Las constantes en `config_supports` mantienen el nombre `_DAYS` pero su semántica operativa es 'días hábiles' (≈12 meses).
+- **2026-05-21 — Spec 03, `data_service` en `analyze_supports`**: mantenido en la firma por fidelidad a la spec aunque no se use hoy (toda la data viene del `candidate`). Hook reservado para evolución futura (e.g. validar IV real cuando se integre data de opciones en Fase 4).
+- **2026-05-21 — Spec 03, `atr_series` extraída de `atr_14`**: refactor sin cambio de comportamiento. `atr_14` ahora delega en `atr_series(...).iloc[-1]`. Permite reuso para detección de pivots y clustering.
+- **2026-05-21 — Spec 03, persistencia idempotente verificada en DB real**: dos runs consecutivos sin error de columna duplicada, columna `pasa_paso_2` única en `candidates`, tabla `support_zones` poblada correctamente con `run_id` separado por corrida.
 
 ---
 

@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from puts_screener.models_screening import ScreenedCandidate
+from puts_screener.models_support import SupportedCandidate, SupportLevel, SupportZone
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,48 @@ CREATE TABLE IF NOT EXISTS candidates (
 CREATE INDEX IF NOT EXISTS idx_candidates_pasa ON candidates(pasa_filtros_paso_1, run_id);
 CREATE INDEX IF NOT EXISTS idx_candidates_ticker ON candidates(ticker);
 CREATE INDEX IF NOT EXISTS idx_candidates_tipo ON candidates(tipo_T, run_id);
+
+CREATE TABLE IF NOT EXISTS support_zones (
+    run_id TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    zone_id INTEGER NOT NULL,
+    is_best INTEGER NOT NULL,
+    center_price REAL NOT NULL,
+    lower_bound REAL NOT NULL,
+    upper_bound REAL NOT NULL,
+    score INTEGER NOT NULL,
+    distance_pct REAL NOT NULL,
+    has_dynamic_confirmer INTEGER NOT NULL,
+    elements_json TEXT NOT NULL,
+    is_valid INTEGER NOT NULL,
+    rejection_reason TEXT,
+    PRIMARY KEY (run_id, ticker, zone_id),
+    FOREIGN KEY (run_id) REFERENCES runs(run_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_support_zones_best ON support_zones(run_id, is_best);
+CREATE INDEX IF NOT EXISTS idx_support_zones_valid ON support_zones(run_id, is_valid);
 """
+
+_SUPPORT_ZONE_COLUMNS = (
+    "run_id",
+    "ticker",
+    "zone_id",
+    "is_best",
+    "center_price",
+    "lower_bound",
+    "upper_bound",
+    "score",
+    "distance_pct",
+    "has_dynamic_confirmer",
+    "elements_json",
+    "is_valid",
+    "rejection_reason",
+)
+_UPSERT_SUPPORT_ZONE_SQL = (
+    f"INSERT OR REPLACE INTO support_zones ({', '.join(_SUPPORT_ZONE_COLUMNS)}) "
+    f"VALUES ({', '.join(['?'] * len(_SUPPORT_ZONE_COLUMNS))})"
+)
 
 _CANDIDATE_COLUMNS = (
     "run_id",
@@ -104,6 +146,13 @@ def _get_db_path() -> Path:
     return Path(env_path) if env_path else DEFAULT_DB_PATH
 
 
+def _ensure_pasa_paso_2_column(conn: sqlite3.Connection) -> None:
+    """Migración idempotente: agrega candidates.pasa_paso_2 solo si no existe."""
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(candidates)").fetchall()}
+    if "pasa_paso_2" not in cols:
+        conn.execute("ALTER TABLE candidates ADD COLUMN pasa_paso_2 INTEGER")
+
+
 @contextmanager
 def _connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     """Abre la conexión, crea el schema si hace falta y commitea al salir."""
@@ -113,6 +162,7 @@ def _connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(_SCHEMA_SQL)
+        _ensure_pasa_paso_2_column(conn)
         yield conn
         conn.commit()
     except Exception:
@@ -216,3 +266,106 @@ def get_run_candidates(
         d["pasa_filtros_paso_1"] = bool(d["pasa_filtros_paso_1"])
         result.append(d)
     return result
+
+
+def _elements_to_json(zone: SupportZone) -> str:
+    """Serializa los SupportLevel de una zona a JSON (metadata ya tiene fechas ISO)."""
+    return json.dumps(
+        [
+            {"price": e.price, "element": e.element, "points": e.points, "metadata": e.metadata}
+            for e in zone.elements
+        ]
+    )
+
+
+def _ordered_zones(sc: SupportedCandidate) -> list[tuple[SupportZone, bool, str | None]]:
+    """Zonas en orden best→worst: válidas primero (ya rankeadas) y luego rechazadas."""
+    ordered: list[tuple[SupportZone, bool, str | None]] = [
+        (zone, True, None) for zone in sc.analysis.valid_zones
+    ]
+    ordered += [(zone, False, reason) for zone, reason in sc.analysis.rejected_zones]
+    return ordered
+
+
+def save_support_analysis(
+    run_id: str,
+    supported_candidates: list[SupportedCandidate],
+    db_path: Path | None = None,
+) -> None:
+    """Persiste TODAS las zonas (válidas y rechazadas) y actualiza candidates.pasa_paso_2.
+
+    zone_id = 0,1,2... en orden de mejor a peor. is_best=1 solo para zone_id=0 si es válida.
+    Idempotente: re-correr con el mismo run_id reemplaza filas (INSERT OR REPLACE).
+    """
+    with _connect(db_path) as conn:
+        for sc in supported_candidates:
+            ticker = sc.screened.ticker
+            for zone_id, (zone, is_valid, reason) in enumerate(_ordered_zones(sc)):
+                is_best = 1 if (zone_id == 0 and is_valid) else 0
+                conn.execute(
+                    _UPSERT_SUPPORT_ZONE_SQL,
+                    (
+                        run_id,
+                        ticker,
+                        zone_id,
+                        is_best,
+                        zone.center_price,
+                        zone.lower_bound,
+                        zone.upper_bound,
+                        zone.score,
+                        zone.distance_pct,
+                        1 if zone.has_dynamic_confirmer else 0,
+                        _elements_to_json(zone),
+                        1 if is_valid else 0,
+                        reason,
+                    ),
+                )
+            conn.execute(
+                "UPDATE candidates SET pasa_paso_2 = ? WHERE run_id = ? AND ticker = ?",
+                (1 if sc.pasa_paso_2 else 0, run_id, ticker),
+            )
+
+    logger.info(
+        "Saved support analysis for run %s: %d candidates", run_id, len(supported_candidates)
+    )
+
+
+def load_support_zones(
+    run_id: str,
+    ticker: str | None = None,
+    db_path: Path | None = None,
+) -> list[SupportZone]:
+    """Reconstruye SupportZone desde SQLite. Si ticker es None, devuelve todas las del run."""
+    query = "SELECT * FROM support_zones WHERE run_id = ?"
+    params: list = [run_id]
+    if ticker is not None:
+        query += " AND ticker = ?"
+        params.append(ticker)
+    query += " ORDER BY ticker ASC, zone_id ASC"
+
+    with _connect(db_path) as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    zones: list[SupportZone] = []
+    for row in rows:
+        elements = [
+            SupportLevel(
+                price=e["price"],
+                element=e["element"],
+                points=e["points"],
+                metadata=e.get("metadata", {}),
+            )
+            for e in json.loads(row["elements_json"])
+        ]
+        zones.append(
+            SupportZone(
+                center_price=row["center_price"],
+                lower_bound=row["lower_bound"],
+                upper_bound=row["upper_bound"],
+                score=row["score"],
+                elements=elements,
+                has_dynamic_confirmer=bool(row["has_dynamic_confirmer"]),
+                distance_pct=row["distance_pct"],
+            )
+        )
+    return zones

@@ -40,6 +40,27 @@ def test_normalize_stoxx_ticker_unsupported(raw):
     assert universe_builder._normalize_stoxx_ticker(raw) is None
 
 
+@pytest.mark.parametrize(
+    ("raw_ticker", "country", "expected"),
+    [
+        ("ZURN", "Switzerland", "ZURN.SW"),
+        ("VOD", "United Kingdom", "VOD.L"),
+        ("SAP", "Germany", "SAP.DE"),
+        ("ASML", "Netherlands", "ASML.AS"),
+        ("VOLV B", "Sweden", "VOLV-B.ST"),  # class share con espacio
+        ("NDA SE", "Finland", "NDA-SE.HE"),
+        ("FLTR", "Ireland", "FLTR.L"),  # Irlanda cotiza en London
+        ("INPST", "Luxembourg", "INPST.AS"),
+        ("HSX", "Bermuda", "HSX.L"),
+        ("LPP", "Poland", None),  # país no soportado
+        ("NAB", "Greece", None),
+        ("TEV", "Israel", None),
+    ],
+)
+def test_normalize_stoxx_v2(raw_ticker, country, expected):
+    assert universe_builder._normalize_stoxx_ticker_v2(raw_ticker, country) == expected
+
+
 @responses.activate
 def test_fetch_sp500_parses_sample():
     html = (FIXTURES / "wikipedia_sp500_sample.html").read_text(encoding="utf-8")
@@ -51,17 +72,15 @@ def test_fetch_sp500_parses_sample():
 def test_fetch_stoxx600_parses_sample():
     html = (FIXTURES / "wikipedia_stoxx600_sample.html").read_text(encoding="utf-8")
     responses.add(responses.GET, universe_builder._STOXX600_URL, body=html, status=200)
-    assert universe_builder._fetch_stoxx600() == [
-        "SAP.DE",
-        "MC.PA",
+    result = universe_builder._fetch_stoxx600()
+    # Poland se skipea → 6 tickers (orden de documento)
+    assert sorted(result) == [
         "ASML.AS",
-        "NESN.SW",
-        "AIR.PA",
-        "SIE.DE",
+        "FLTR.L",
+        "SAP.DE",
         "VOD.L",
-        "ENEL.MI",
-        "SAN.MC",
-        "RIO.L",
+        "VOLV-B.ST",
+        "ZURN.SW",
     ]
 
 

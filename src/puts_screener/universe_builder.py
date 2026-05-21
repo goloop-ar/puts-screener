@@ -48,6 +48,30 @@ _BLOOMBERG_TO_YF = {
     "AV": ".VI",
 }
 
+# Mapeo Country (Wikipedia STOXX 600) -> sufijo yfinance.
+# Cubre 99% de STOXX 600. Países fuera de este dict se skipean.
+_STOXX_COUNTRY_TO_SUFFIX: dict[str, str] = {
+    "United Kingdom": ".L",
+    "France": ".PA",
+    "Germany": ".DE",
+    "Switzerland": ".SW",
+    "Sweden": ".ST",
+    "Spain": ".MC",
+    "Netherlands": ".AS",
+    "Italy": ".MI",
+    "Finland": ".HE",
+    "Belgium": ".BR",
+    "Norway": ".OL",
+    "Denmark": ".CO",
+    "Austria": ".VI",
+    "Portugal": ".LS",
+    # Casos especiales: empresa registrada en un país pero cotiza en otro.
+    "Ireland": ".L",  # mayoría cotiza en London
+    "Luxembourg": ".AS",  # mayoría cotiza en Amsterdam
+    "Bermuda": ".L",  # típicamente listadas en London
+    # Países no mapeados (Poland, Greece, Israel, etc.): skip.
+}
+
 
 def build_universe(refresh: bool = False) -> list[str]:
     """Combina S&P 500 + Stoxx 600 con cache de 7 días.
@@ -71,18 +95,64 @@ def _fetch_sp500() -> list[str]:
 
 
 def _fetch_stoxx600() -> list[str]:
-    """Stoxx 600: tabla con columna 'Ticker'/'Symbol', normalizada a formato yfinance.
+    """Fetchea constituyentes de STOXX 600 desde Wikipedia.
 
-    Los tickers que no se pueden mapear a un exchange soportado se descartan.
+    Lee la tabla con columnas (Ticker, Company, ICB Sector, Country, ...) — en la
+    versión actual de Wikipedia es la tabla ~index 2 de la página. Construye el
+    ticker yfinance combinando Ticker + sufijo derivado de Country.
+
+    Returns:
+        Lista de tickers en formato yfinance (ej. "VOD.L", "SAP.DE", "ASML.AS").
+        Los tickers cuyo país no está en `_STOXX_COUNTRY_TO_SUFFIX` se skipean.
     """
     html = _http_get(_STOXX600_URL)
-    raw = _parse_table_column(html, ("Ticker", "Symbol"))
-    normalized = [_normalize_stoxx_ticker(value) for value in raw]
-    return [ticker for ticker in normalized if ticker]
+    soup = BeautifulSoup(html, "html.parser")
+
+    constituents_table = None
+    ticker_idx = country_idx = -1
+    for table in soup.find_all("table"):
+        first_row = table.find("tr")
+        if first_row is None:
+            continue
+        headers = [th.get_text(strip=True) for th in first_row.find_all("th")]
+        if "Ticker" in headers and "Country" in headers:
+            constituents_table = table
+            ticker_idx = headers.index("Ticker")
+            country_idx = headers.index("Country")
+            break
+
+    if constituents_table is None:
+        raise ValueError("No constituents table found in STOXX 600 Wikipedia page")
+
+    tickers: list[str] = []
+    skipped_count = 0
+    for row in constituents_table.find_all("tr")[1:]:
+        cells = row.find_all("td")
+        if len(cells) <= max(ticker_idx, country_idx):
+            continue
+        raw_ticker = cells[ticker_idx].get_text(strip=True)
+        country = cells[country_idx].get_text(strip=True)
+        if not raw_ticker:
+            continue
+        normalized = _normalize_stoxx_ticker_v2(raw_ticker, country)
+        if normalized is None:
+            skipped_count += 1
+            continue
+        tickers.append(normalized)
+
+    if skipped_count > 0:
+        logger.info(
+            "STOXX 600: skipped %d tickers (country outside supported exchanges)",
+            skipped_count,
+        )
+    return tickers
 
 
 def _normalize_stoxx_ticker(raw: str, exchange_hint: str | None = None) -> str | None:
-    """Normaliza un ticker de Stoxx 600 al formato canónico de yfinance.
+    """Normaliza un ticker de Stoxx 600 (formato Bloomberg o sufijo punto) a yfinance.
+
+    NOTA: la función activa en el flujo principal es `_normalize_stoxx_ticker_v2`
+    (Ticker + Country). Esta se mantiene por si Wikipedia vuelve al formato Bloomberg.
 
     Soporta forma Bloomberg (`SAP GR` → `SAP.DE`) y forma con sufijo punto
     (`ASML.AS`). Devuelve None si el exchange no está soportado.
@@ -108,6 +178,30 @@ def _normalize_stoxx_ticker(raw: str, exchange_hint: str | None = None) -> str |
         return None
 
     return None
+
+
+def _normalize_stoxx_ticker_v2(raw_ticker: str, country: str) -> str | None:
+    """Normaliza un ticker de STOXX 600 al formato yfinance usando el país.
+
+    Función activa en el flujo principal (`_fetch_stoxx600`).
+
+    Reglas:
+    - Espacios internos en el ticker → guion (class shares: "VOLV B" → "VOLV-B").
+    - Sufijo derivado de `country` via `_STOXX_COUNTRY_TO_SUFFIX`.
+    - País no mapeado → None (caller debe skipear).
+
+    Examples:
+        >>> _normalize_stoxx_ticker_v2("ZURN", "Switzerland")
+        'ZURN.SW'
+        >>> _normalize_stoxx_ticker_v2("VOLV B", "Sweden")
+        'VOLV-B.ST'
+        >>> _normalize_stoxx_ticker_v2("LPP", "Poland")
+    """
+    suffix = _STOXX_COUNTRY_TO_SUFFIX.get(country)
+    if suffix is None:
+        return None
+    base = raw_ticker.upper().replace(" ", "-")
+    return f"{base}{suffix}"
 
 
 def _http_get(url: str) -> str:

@@ -9,7 +9,7 @@ import yfinance as yf
 
 from .base import DataProvider, ProviderError
 from .cache import get_cached, read_ohlcv_slice, write_cache, write_ohlcv
-from .models import CompanyProfile, EarningsEvent, FinancialSnapshot
+from .models import AnalystData, CompanyProfile, EarningsEvent, FinancialSnapshot, RatingChange
 from .tickers import to_yfinance
 
 logger = logging.getLogger(__name__)
@@ -75,6 +75,80 @@ def _earnings_from_cache(data: dict) -> EarningsEvent:
         eps_actual=data["eps_actual"],
         when=data["when"],
     )
+
+
+_ACTION_MAP = {
+    "up": "upgrade",
+    "down": "downgrade",
+    "init": "initiation",
+    "main": "reiterated",
+    "reit": "reiterated",
+}
+_ZERO_COUNTS = {"strongBuy": 0, "buy": 0, "hold": 0, "sell": 0, "strongSell": 0}
+
+
+def _normalize_action(action: str | None) -> str:
+    if not action:
+        return ""
+    key = action.strip().lower()
+    return _ACTION_MAP.get(key, key)
+
+
+def _clean_str(value: object) -> str | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value)
+    return text or None
+
+
+def _as_count(value: object) -> int:
+    if value is None or pd.isna(value):
+        return 0
+    return int(value)
+
+
+def _recommendation_counts(recs: pd.DataFrame | None) -> dict:
+    """Extrae los counts de la fila más reciente ("0m", luego "-1m") o ceros."""
+    if recs is None or not hasattr(recs, "columns") or recs.empty or "period" not in recs.columns:
+        return dict(_ZERO_COUNTS)
+    for period in ("0m", "-1m"):
+        match = recs[recs["period"] == period]
+        if not match.empty:
+            row = match.iloc[0]
+            return {key: _as_count(row.get(key)) for key in _ZERO_COUNTS}
+    return dict(_ZERO_COUNTS)
+
+
+def _analyst_from_cache(data: dict) -> AnalystData:
+    return AnalystData(
+        ticker=data["ticker"],
+        price_target_mean=data["price_target_mean"],
+        price_target_median=data["price_target_median"],
+        price_target_high=data["price_target_high"],
+        price_target_low=data["price_target_low"],
+        n_analysts=data["n_analysts"],
+        buy_count=data["buy_count"],
+        hold_count=data["hold_count"],
+        sell_count=data["sell_count"],
+        strong_buy_count=data["strong_buy_count"],
+        strong_sell_count=data["strong_sell_count"],
+        recommendation_mean=data["recommendation_mean"],
+        as_of=_parse_date(data["as_of"]),
+    )
+
+
+def _ratings_from_cache(data: dict) -> list[RatingChange]:
+    return [
+        RatingChange(
+            ticker=item["ticker"],
+            date=_parse_date(item["date"]),
+            action=item["action"],
+            from_grade=item["from_grade"],
+            to_grade=item["to_grade"],
+            firm=item["firm"],
+        )
+        for item in data["items"]
+    ]
 
 
 class YFinanceProvider(DataProvider):
@@ -191,3 +265,66 @@ class YFinanceProvider(DataProvider):
         )
         write_cache("earnings", cache_key, dataclasses.asdict(event))
         return event
+
+    def get_analyst_data(self, ticker: str) -> AnalystData:
+        cache_key = f"yfinance_{ticker}"
+        cached = get_cached("analyst", cache_key)
+        if cached is not None:
+            return _analyst_from_cache(cached)
+
+        tk = _get_ticker(to_yfinance(ticker))
+        info = tk.info or {}
+        price_target_mean = info.get("targetMeanPrice")
+        n_analysts = info.get("numberOfAnalystOpinions")
+        recommendation_mean = info.get("recommendationMean")
+        if recommendation_mean is None and n_analysts is None and price_target_mean is None:
+            raise ProviderError(f"yfinance returned empty analyst data for {ticker}")
+
+        counts = _recommendation_counts(tk.recommendations)
+        data = AnalystData(
+            ticker=ticker,
+            price_target_mean=price_target_mean,
+            price_target_median=info.get("targetMedianPrice"),
+            price_target_high=info.get("targetHighPrice"),
+            price_target_low=info.get("targetLowPrice"),
+            n_analysts=n_analysts,
+            buy_count=counts["buy"],
+            hold_count=counts["hold"],
+            sell_count=counts["sell"],
+            strong_buy_count=counts["strongBuy"],
+            strong_sell_count=counts["strongSell"],
+            recommendation_mean=recommendation_mean,
+            as_of=date.today(),
+        )
+        write_cache("analyst", cache_key, dataclasses.asdict(data))
+        return data
+
+    def get_rating_changes(self, ticker: str, lookback_weeks: int = 6) -> list[RatingChange]:
+        cache_key = f"yfinance_{ticker}_{lookback_weeks}"
+        cached = get_cached("ratings", cache_key)
+        if cached is not None:
+            return _ratings_from_cache(cached)
+
+        df = _get_ticker(to_yfinance(ticker)).upgrades_downgrades
+        if df is None or not hasattr(df, "empty") or df.empty:
+            return []
+
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+            df = df.copy()
+            df.index = df.index.tz_localize(None)
+        cutoff = pd.Timestamp(date.today() - timedelta(weeks=lookback_weeks))
+        recent = df[df.index >= cutoff]
+
+        changes = [
+            RatingChange(
+                ticker=ticker,
+                date=_to_date(idx),
+                action=_normalize_action(_clean_str(row.get("Action"))),
+                from_grade=_clean_str(row.get("FromGrade")),
+                to_grade=_clean_str(row.get("ToGrade")),
+                firm=_clean_str(row.get("Firm")),
+            )
+            for idx, row in recent.iterrows()
+        ]
+        write_cache("ratings", cache_key, {"items": [dataclasses.asdict(c) for c in changes]})
+        return changes

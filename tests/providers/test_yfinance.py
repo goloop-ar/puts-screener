@@ -180,3 +180,167 @@ def test_earnings_cache_hit_skips_ticker(tmp_cache_root, monkeypatch):
     assert event is not None
     assert event.date == date(2024, 2, 1)
     mock_get.assert_not_called()
+
+
+def test_get_analyst_data_happy(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    tk.info = {
+        "recommendationMean": 1.95,
+        "numberOfAnalystOpinions": 40,
+        "targetMeanPrice": 308.0,
+        "targetMedianPrice": 305.0,
+        "targetHighPrice": 350.0,
+        "targetLowPrice": 250.0,
+    }
+    tk.recommendations = pd.DataFrame(
+        {
+            "period": ["0m", "-1m"],
+            "strongBuy": [20, 18],
+            "buy": [15, 16],
+            "hold": [5, 6],
+            "sell": [1, 1],
+            "strongSell": [0, 0],
+        }
+    )
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    data = provider.get_analyst_data("AAPL")
+    assert data.recommendation_mean == 1.95
+    assert data.n_analysts == 40
+    assert data.price_target_mean == 308.0
+    assert data.strong_buy_count == 20
+    assert data.buy_count == 15
+    assert data.hold_count == 5
+    assert data.sell_count == 1
+    assert data.strong_sell_count == 0
+
+
+def test_get_analyst_data_empty_raises(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    tk.info = {}
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    with pytest.raises(ProviderError):
+        provider.get_analyst_data("AAPL")
+
+
+def test_get_analyst_data_no_matching_period(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    tk.info = {
+        "recommendationMean": 2.5,
+        "numberOfAnalystOpinions": 10,
+        "targetMeanPrice": 100.0,
+    }
+    tk.recommendations = pd.DataFrame(
+        {
+            "period": ["-2m", "-3m"],
+            "strongBuy": [5, 4],
+            "buy": [3, 2],
+            "hold": [2, 2],
+            "sell": [0, 0],
+            "strongSell": [0, 0],
+        }
+    )
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    data = provider.get_analyst_data("AAPL")
+    assert data.recommendation_mean == 2.5
+    assert data.strong_buy_count == 0
+    assert data.buy_count == 0
+    assert data.hold_count == 0
+
+
+def test_analyst_data_cache_hit_skips_ticker(tmp_cache_root, monkeypatch):
+    cached = {
+        "ticker": "AAPL",
+        "price_target_mean": 1.0,
+        "price_target_median": 2.0,
+        "price_target_high": 3.0,
+        "price_target_low": 0.5,
+        "n_analysts": 10,
+        "buy_count": 1,
+        "hold_count": 2,
+        "sell_count": 3,
+        "strong_buy_count": 4,
+        "strong_sell_count": 5,
+        "recommendation_mean": 2.0,
+        "as_of": "2024-01-01",
+    }
+    cache.write_cache("analyst", "yfinance_AAPL", cached)
+    mock_get = MagicMock()
+    monkeypatch.setattr(yfinance_provider, "_get_ticker", mock_get)
+    provider = YFinanceProvider()
+    data = provider.get_analyst_data("AAPL")
+    assert data.recommendation_mean == 2.0
+    assert data.strong_sell_count == 5
+    mock_get.assert_not_called()
+
+
+def test_get_rating_changes_happy(tmp_cache_root, monkeypatch):
+    today = date.today()
+    idx = pd.to_datetime(
+        [
+            today - timedelta(days=3),
+            today - timedelta(days=10),
+            today - timedelta(days=90),
+        ]
+    )
+    df = pd.DataFrame(
+        {
+            "Firm": ["Morgan Stanley", "Goldman Sachs", "JPMorgan"],
+            "ToGrade": ["Buy", "Hold", "Sell"],
+            "FromGrade": ["Hold", "Buy", float("nan")],
+            "Action": ["up", "down", "init"],
+        },
+        index=idx,
+    )
+    tk = MagicMock()
+    tk.upgrades_downgrades = df
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    changes = provider.get_rating_changes("AAPL", lookback_weeks=6)
+    assert len(changes) == 2
+    assert {c.action for c in changes} == {"upgrade", "downgrade"}
+    first = next(c for c in changes if c.firm == "Morgan Stanley")
+    assert first.action == "upgrade"
+    assert first.to_grade == "Buy"
+
+
+def test_get_rating_changes_empty_returns_list(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    tk.upgrades_downgrades = pd.DataFrame()
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    assert provider.get_rating_changes("ASML.AS") == []
+
+
+def test_get_rating_changes_none_returns_list(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    tk.upgrades_downgrades = None
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    assert provider.get_rating_changes("ASML.AS") == []
+
+
+def test_rating_changes_cache_hit_skips_ticker(tmp_cache_root, monkeypatch):
+    cached = {
+        "items": [
+            {
+                "ticker": "AAPL",
+                "date": "2024-05-01",
+                "action": "upgrade",
+                "from_grade": "Hold",
+                "to_grade": "Buy",
+                "firm": "Morgan Stanley",
+            }
+        ]
+    }
+    cache.write_cache("ratings", "yfinance_AAPL_6", cached)
+    mock_get = MagicMock()
+    monkeypatch.setattr(yfinance_provider, "_get_ticker", mock_get)
+    provider = YFinanceProvider()
+    changes = provider.get_rating_changes("AAPL", lookback_weeks=6)
+    assert len(changes) == 1
+    assert changes[0].action == "upgrade"
+    assert changes[0].date == date(2024, 5, 1)
+    mock_get.assert_not_called()

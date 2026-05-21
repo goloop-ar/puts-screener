@@ -4,7 +4,6 @@ import logging
 
 from .finnhub_provider import FinnhubProvider
 from .service import DataService
-from .stooq import StooqProvider
 from .yfinance_provider import YFinanceProvider
 
 logger = logging.getLogger(__name__)
@@ -13,19 +12,24 @@ logger = logging.getLogger(__name__)
 def build_default_data_service() -> DataService:
     """Construye el DataService con el orden de fallback por defecto del proyecto.
 
-    Returns:
-        DataService configurado con Stooq, yfinance y Finnhub.
-        Finnhub se autodesactiva si FINNHUB_API_KEY no está seteada.
+    Stack actual (post-smoke-test 2026-05-21):
+    - OHLCV: yfinance único (Stooq quedó fuera por requerimiento de API key desde marzo 2026).
+    - Profile: yfinance primario, Finnhub fallback (Finnhub free funciona solo para US).
+    - Financials: yfinance único (Finnhub no lo provee en free).
+    - Analyst data: yfinance primario, Finnhub fallback (Finnhub free roto en price_target).
+    - Rating changes: yfinance único (Finnhub free roto en upgrade_downgrade).
+    - Earnings: yfinance primario, Finnhub fallback.
+
+    Finnhub se autodesactiva si FINNHUB_API_KEY no está seteada.
     """
-    stooq = StooqProvider()
     yf = YFinanceProvider()
-    fh = FinnhubProvider()  # se autodeshabilita si no hay key
+    fh = FinnhubProvider()
 
     return DataService(
-        ohlcv_providers=[stooq, yf],
+        ohlcv_providers=[yf],
         profile_providers=[yf, fh],
         financials_providers=[yf],
-        analyst_providers=[fh],
-        rating_providers=[fh],
-        earnings_providers=[fh, yf],
+        analyst_providers=[yf, fh],
+        rating_providers=[yf],
+        earnings_providers=[yf, fh],
     )

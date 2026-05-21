@@ -9,7 +9,6 @@ from puts_screener.providers.factory import build_default_data_service
 from puts_screener.providers.finnhub_provider import FinnhubProvider
 from puts_screener.providers.models import EarningsEvent
 from puts_screener.providers.service import AllProvidersFailedError, DataService
-from puts_screener.providers.stooq import StooqProvider
 from puts_screener.providers.yfinance_provider import YFinanceProvider
 
 _FAIL = "FAIL"
@@ -190,15 +189,16 @@ def test_ohlcv_none_is_failure():
 def test_factory_builds_service_with_correct_types():
     svc = build_default_data_service()
     assert isinstance(svc, DataService)
-    assert isinstance(svc._ohlcv[0], StooqProvider)
-    assert isinstance(svc._ohlcv[1], YFinanceProvider)
+    assert [type(p) for p in svc._ohlcv] == [YFinanceProvider]
     assert isinstance(svc._profile[0], YFinanceProvider)
     assert isinstance(svc._profile[1], FinnhubProvider)
     assert isinstance(svc._financials[0], YFinanceProvider)
-    assert isinstance(svc._analyst[0], FinnhubProvider)
-    assert isinstance(svc._rating[0], FinnhubProvider)
-    assert isinstance(svc._earnings[0], FinnhubProvider)
-    assert isinstance(svc._earnings[1], YFinanceProvider)
+    assert isinstance(svc._analyst[0], YFinanceProvider)
+    assert isinstance(svc._analyst[1], FinnhubProvider)
+    assert isinstance(svc._rating[0], YFinanceProvider)
+    assert [type(p) for p in svc._rating] == [YFinanceProvider]
+    assert isinstance(svc._earnings[0], YFinanceProvider)
+    assert isinstance(svc._earnings[1], FinnhubProvider)
 
 
 def test_logging_warning_then_info(caplog):

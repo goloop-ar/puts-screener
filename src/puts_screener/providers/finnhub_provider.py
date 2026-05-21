@@ -209,7 +209,7 @@ class FinnhubProvider(DataProvider):
                 self._client.upgrade_downgrade,
                 "upgrade_downgrade",
                 symbol=to_finnhub(ticker),
-                from_=from_,
+                _from=from_,
                 to=to_,
             )
             or []

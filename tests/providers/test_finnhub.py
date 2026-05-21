@@ -99,6 +99,10 @@ def test_rating_changes_mapping(tmp_cache_root):
     assert changes[0].date == date(2024, 1, 3)
     assert changes[1].action == "downgrade"
     assert changes[1].date == date(2023, 12, 31)
+    # el SDK de Finnhub usa el kwarg `_from` (no `from_`)
+    _, kwargs = provider._client.upgrade_downgrade.call_args
+    assert "_from" in kwargs
+    assert "from_" not in kwargs
 
 
 def test_upcoming_earnings_happy(tmp_cache_root):

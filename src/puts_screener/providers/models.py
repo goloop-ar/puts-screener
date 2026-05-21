@@ -60,3 +60,14 @@ class EarningsEvent:
     eps_estimate: float | None
     eps_actual: float | None
     when: str | None  # "bmo" (before market open) | "amc" (after market close) | None
+
+
+@dataclass(frozen=True)
+class HistoricalEarningsEvent:
+    ticker: str
+    date: date  # fecha del earnings (puede ser hoy o pasado, NO futuro)
+    eps_estimate: float | None
+    eps_actual: float | None
+    eps_surprise_pct: float | None  # (actual - estimate) / abs(estimate) * 100
+    revenue_estimate: float | None  # opcional, puede no estar disponible
+    revenue_actual: float | None

@@ -9,7 +9,14 @@ import yfinance as yf
 
 from .base import DataProvider, ProviderError
 from .cache import get_cached, read_ohlcv_slice, write_cache, write_ohlcv
-from .models import AnalystData, CompanyProfile, EarningsEvent, FinancialSnapshot, RatingChange
+from .models import (
+    AnalystData,
+    CompanyProfile,
+    EarningsEvent,
+    FinancialSnapshot,
+    HistoricalEarningsEvent,
+    RatingChange,
+)
 from .tickers import to_yfinance
 
 logger = logging.getLogger(__name__)
@@ -101,6 +108,20 @@ def _clean_str(value: object) -> str | None:
     return text or None
 
 
+def _clean_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _as_count(value: object) -> int:
     if value is None or pd.isna(value):
         return 0
@@ -146,6 +167,21 @@ def _ratings_from_cache(data: dict) -> list[RatingChange]:
             from_grade=item["from_grade"],
             to_grade=item["to_grade"],
             firm=item["firm"],
+        )
+        for item in data["items"]
+    ]
+
+
+def _historical_earnings_from_cache(data: dict) -> list[HistoricalEarningsEvent]:
+    return [
+        HistoricalEarningsEvent(
+            ticker=item["ticker"],
+            date=_parse_date(item["date"]),
+            eps_estimate=item["eps_estimate"],
+            eps_actual=item["eps_actual"],
+            eps_surprise_pct=item["eps_surprise_pct"],
+            revenue_estimate=item["revenue_estimate"],
+            revenue_actual=item["revenue_actual"],
         )
         for item in data["items"]
     ]
@@ -328,3 +364,40 @@ class YFinanceProvider(DataProvider):
         ]
         write_cache("ratings", cache_key, {"items": [dataclasses.asdict(c) for c in changes]})
         return changes
+
+    def get_historical_earnings(
+        self, ticker: str, lookback_days: int = 365
+    ) -> list[HistoricalEarningsEvent]:
+        cache_key = f"yfinance_{ticker}_{lookback_days}"
+        cached = get_cached("earnings_history", cache_key)
+        if cached is not None:
+            return _historical_earnings_from_cache(cached)
+
+        df = _get_ticker(to_yfinance(ticker)).earnings_dates
+        if df is None or not hasattr(df, "empty") or df.empty:
+            return []
+
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
+            df = df.copy()
+            df.index = df.index.tz_localize(None)
+        today = date.today()
+        cutoff = pd.Timestamp(today - timedelta(days=lookback_days))
+        today_ts = pd.Timestamp(today)
+        recent = df[(df.index >= cutoff) & (df.index <= today_ts)].sort_index(ascending=False)
+
+        events = [
+            HistoricalEarningsEvent(
+                ticker=ticker,
+                date=_to_date(idx),
+                eps_estimate=_clean_float(row.get("EPS Estimate")),
+                eps_actual=_clean_float(row.get("Reported EPS")),
+                eps_surprise_pct=_clean_float(row.get("Surprise(%)")),
+                revenue_estimate=_clean_float(row.get("Revenue Estimate")),
+                revenue_actual=_clean_float(row.get("Revenue Actual")),
+            )
+            for idx, row in recent.iterrows()
+        ]
+        write_cache(
+            "earnings_history", cache_key, {"items": [dataclasses.asdict(e) for e in events]}
+        )
+        return events

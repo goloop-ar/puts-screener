@@ -11,6 +11,7 @@ from .models import (
     CompanyProfile,
     EarningsEvent,
     FinancialSnapshot,
+    HistoricalEarningsEvent,
     RatingChange,
 )
 
@@ -37,6 +38,7 @@ class DataService:
         analyst_providers: list[DataProvider],
         rating_providers: list[DataProvider],
         earnings_providers: list[DataProvider],
+        historical_earnings_providers: list[DataProvider],
     ) -> None:
         self._ohlcv = ohlcv_providers
         self._profile = profile_providers
@@ -44,6 +46,7 @@ class DataService:
         self._analyst = analyst_providers
         self._rating = rating_providers
         self._earnings = earnings_providers
+        self._historical_earnings = historical_earnings_providers
 
     def get_ohlcv(self, ticker: str, start: date, end: date, interval: str = "1d") -> pd.DataFrame:
         return self._call_with_fallback(
@@ -78,11 +81,13 @@ class DataService:
         )
 
     def get_rating_changes(self, ticker: str, lookback_weeks: int = 6) -> list[RatingChange]:
+        # Lista vacía es legítima (p.ej. tickers EU en yfinance), no un fallo.
         return self._call_with_fallback(
             "get_rating_changes",
             self._rating,
             ticker,
             lambda p: p.get_rating_changes(ticker, lookback_weeks),
+            allow_empty=True,
         )
 
     def get_upcoming_earnings(
@@ -98,6 +103,18 @@ class DataService:
             allow_none=True,
         )
 
+    def get_historical_earnings(
+        self, ticker: str, lookback_days: int = 365
+    ) -> list[HistoricalEarningsEvent]:
+        # Lista vacía es éxito (tickers nuevos o no-US sin earnings históricos), no un fallo.
+        return self._call_with_fallback(
+            "get_historical_earnings",
+            self._historical_earnings,
+            ticker,
+            lambda p: p.get_historical_earnings(ticker, lookback_days),
+            allow_empty=True,
+        )
+
     def _call_with_fallback(
         self,
         method_name: str,
@@ -105,6 +122,7 @@ class DataService:
         ticker: str,
         call: callable,
         allow_none: bool = False,
+        allow_empty: bool = False,
     ):
         if not providers:
             raise AllProvidersFailedError(f"No providers configured for {method_name}")
@@ -124,6 +142,12 @@ class DataService:
                 if result is None and not allow_none:
                     last_error = ProviderError(
                         f"{provider.name} returned None for {method_name}({ticker})"
+                    )
+                    logger.warning(str(last_error))
+                    continue
+                if isinstance(result, list) and not result and not allow_empty:
+                    last_error = ProviderError(
+                        f"{provider.name} returned empty list for {method_name}({ticker})"
                     )
                     logger.warning(str(last_error))
                     continue

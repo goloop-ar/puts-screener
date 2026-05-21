@@ -28,12 +28,15 @@ def test_base_methods_raise_not_supported():
         provider.get_rating_changes("AAPL")
     with pytest.raises(NotSupportedError):
         provider.get_upcoming_earnings("AAPL")
+    with pytest.raises(NotSupportedError):
+        provider.get_historical_earnings("AAPL")
 
 
 def test_supports_reports_overridden_methods():
     provider = OnlyOhlcvProvider()
     assert provider.supports("get_ohlcv") is True
     assert provider.supports("get_company_profile") is False
+    assert provider.supports("get_historical_earnings") is False
 
 
 def test_supports_rejects_unknown_method():

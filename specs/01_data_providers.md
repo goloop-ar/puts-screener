@@ -87,6 +87,16 @@ class EarningsEvent:
     eps_estimate: Optional[float]
     eps_actual: Optional[float]
     when: Optional[str]          # "bmo" (before market open) | "amc" (after market close) | None
+
+@dataclass(frozen=True)
+class HistoricalEarningsEvent:
+    ticker: str
+    date: date  # fecha del earnings (puede ser hoy o pasado, NO futuro)
+    eps_estimate: float | None
+    eps_actual: float | None
+    eps_surprise_pct: float | None  # (actual - estimate) / abs(estimate) * 100
+    revenue_estimate: float | None  # opcional, puede no estar disponible
+    revenue_actual: float | None
 ```
 
 **OHLCV**: pandas DataFrame con columnas exactas `["Open", "High", "Low", "Close", "Volume"]` indexado por `DatetimeIndex` ascendente, sin huecos en días hábiles. No es dataclass porque pandas ya es el formato canónico.
@@ -128,6 +138,11 @@ class DataProvider(ABC):
     def get_upcoming_earnings(self, ticker: str, lookforward_days: int = 60) -> EarningsEvent | None:
         raise NotSupportedError(f"{self.name} no soporta get_upcoming_earnings")
 
+    def get_historical_earnings(
+        self, ticker: str, lookback_days: int = 365
+    ) -> list[HistoricalEarningsEvent]:
+        raise NotSupportedError(f"{self.name} no soporta get_historical_earnings")
+
     def supports(self, method_name: str) -> bool:
         """True si el provider implementa (override) el método."""
         # Implementación: comparar __qualname__ del método actual vs el de DataProvider
@@ -151,7 +166,7 @@ class DataProvider(ABC):
 
 ### 5.2 `YFinanceProvider` (`providers/yfinance_provider.py`)
 
-- **Soporta**: `get_ohlcv`, `get_company_profile`, `get_financials`, `get_analyst_data`, `get_rating_changes`, `get_upcoming_earnings`.
+- **Soporta**: `get_ohlcv`, `get_company_profile`, `get_financials`, `get_analyst_data`, `get_rating_changes`, `get_upcoming_earnings`, `get_historical_earnings`.
 - **Wrapper**: `yfinance.Ticker`
 - **Detalles**:
   - `get_ohlcv` → `Ticker.history(start=..., end=..., interval=...)`. Renombrar columnas a las canónicas.
@@ -176,6 +191,16 @@ class DataProvider(ABC):
 - Si es None o vacío → devuelve `[]` (NO error). yfinance no provee esta data para tickers EU.
 - Filtra por `index >= today - lookback_weeks`.
 - Normaliza `Action`: `"up"`→`"upgrade"`, `"down"`→`"downgrade"`, `"init"`→`"initiation"`, `"main"`/`"reit"`→`"reiterated"`.
+
+#### `get_historical_earnings`
+
+- Cache: `get_cached("earnings_history", f"yfinance_{ticker}_{lookback_days}")`.
+- Lee `tk.earnings_dates` (DataFrame indexado por fecha).
+- Filtra solo fechas ≤ hoy AND ≥ hoy - lookback_days.
+- Mapea: `eps_estimate` ← `EPS Estimate`, `eps_actual` ← `Reported EPS`, `eps_surprise_pct` ← `Surprise(%)`.
+- NaN → None.
+- Si yfinance devuelve None o vacío → `[]` (no error). Earnings vacío es legítimo.
+- Cache write (lista envuelta como `{"items": [...]}`).
 
 ### 5.3 `FinnhubProvider` (`providers/finnhub_provider.py`)
 
@@ -291,7 +316,8 @@ data/cache/
 ├── financials/{provider}/{ticker}.json
 ├── analyst/{provider}/{ticker}.json
 ├── ratings/{provider}/{ticker}.json
-└── earnings/{provider}/{ticker}.json
+├── earnings/{provider}/{ticker}.json
+└── earnings_history/{provider}/{ticker}_{lookback_days}.json
 ```
 
 **TTL por tipo**:
@@ -304,8 +330,9 @@ data/cache/
 | analyst | 24h |
 | ratings | 24h |
 | earnings | 24h |
+| earnings_history | 24h |
 
-**Política específica de OHLCV**: el archivo `ohlcv/{ticker}_{interval}.parquet` contiene una ventana rolling de los **últimos N días hábiles desde la última fetch** (N=800 por default, ≈3 años, holgado para SMA200W). Comportamiento de `get_ohlcv(ticker, start, end, interval)`:
+**Política específica de OHLCV**: el archivo `ohlcv/{ticker}_{interval}.parquet` contiene una ventana rolling de los **últimos N días hábiles desde la última fetch** (N=1500 por default, ≈6 años hábiles, suficiente para SMA200W: 200 semanas ≈ 1400 días). Comportamiento de `get_ohlcv(ticker, start, end, interval)`:
 
 1. Si el cache existe, está fresh (TTL 24h) y `[start, end]` cae dentro del rango cacheado: devolver `cache.df.loc[start:end]`.
 2. En otro caso: refetch los últimos N días desde el provider, persistir, devolver slice de `[start, end]`.
@@ -464,3 +491,5 @@ tests/
 - **Tickers ADR**: por ahora se tratan como US. Los duals listings europeos se identifican por el sufijo.
 - **Post-smoke-test 2026-05-21**: Stooq removido del default por cambio a API key en marzo 2026. yfinance asumió el rol de provider primario en todos los métodos. Finnhub queda como fallback opcional solo para US. Stooq sigue implementado y testeado para uso futuro.
 - **Rating changes en EU**: yfinance no provee `upgrades_downgrades` para tickers europeos. El método retorna lista vacía sin error. El filtro de "downgrades 6w" del SOP se aplicará efectivamente solo a tickers US.
+- **Extensión retroactiva 2026-05-22**: Agregado `get_historical_earnings` para soportar la detección de T4 (post-earnings dip) en spec 02. Implementado solo en yfinance por ahora; Finnhub free no expone ese endpoint.
+- **`OHLCV_ROLLING_DAYS` bumpeado de 800 a 1500 días**: necesario para que SMA200W (200 semanas ≈ 1400 días hábiles) se pueda calcular con el cache.

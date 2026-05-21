@@ -10,6 +10,7 @@ from .models import (
     CompanyProfile,
     EarningsEvent,
     FinancialSnapshot,
+    HistoricalEarningsEvent,
     RatingChange,
 )
 
@@ -30,6 +31,7 @@ _PROVIDER_METHODS = frozenset(
         "get_analyst_data",
         "get_rating_changes",
         "get_upcoming_earnings",
+        "get_historical_earnings",
     }
 )
 
@@ -62,6 +64,11 @@ class DataProvider(ABC):  # noqa: B024
         self, ticker: str, lookforward_days: int = 60
     ) -> EarningsEvent | None:
         raise NotSupportedError(f"{self.name} no soporta get_upcoming_earnings")
+
+    def get_historical_earnings(
+        self, ticker: str, lookback_days: int = 365
+    ) -> list[HistoricalEarningsEvent]:
+        raise NotSupportedError(f"{self.name} no soporta get_historical_earnings")
 
     def supports(self, method_name: str) -> bool:
         """Devuelve True si la subclase overridea `method_name`.

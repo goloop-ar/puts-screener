@@ -32,4 +32,5 @@ def build_default_data_service() -> DataService:
         analyst_providers=[yf, fh],
         rating_providers=[yf],
         earnings_providers=[yf, fh],
+        historical_earnings_providers=[yf],
     )

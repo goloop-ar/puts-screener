@@ -344,3 +344,92 @@ def test_rating_changes_cache_hit_skips_ticker(tmp_cache_root, monkeypatch):
     assert changes[0].action == "upgrade"
     assert changes[0].date == date(2024, 5, 1)
     mock_get.assert_not_called()
+
+
+def test_get_historical_earnings_happy_path(tmp_cache_root, monkeypatch):
+    today = date.today()
+    idx = pd.to_datetime(
+        [
+            today - timedelta(days=10),
+            today - timedelta(days=100),
+            today + timedelta(days=30),
+        ]
+    )
+    df = pd.DataFrame(
+        {
+            "EPS Estimate": [2.0, 1.9, 2.2],
+            "Reported EPS": [2.3, 1.85, float("nan")],
+            "Surprise(%)": [15.0, -2.6, float("nan")],
+        },
+        index=idx,
+    )
+    tk = MagicMock()
+    tk.earnings_dates = df
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    events = provider.get_historical_earnings("AAPL", lookback_days=365)
+    assert len(events) == 2
+    assert all(e.date <= today for e in events)
+    assert events[0].date == today - timedelta(days=10)
+    assert events[0].eps_actual == 2.3
+    assert events[0].eps_surprise_pct == 15.0
+    assert events[1].date == today - timedelta(days=100)
+
+
+def test_get_historical_earnings_empty(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    tk.earnings_dates = None
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    assert provider.get_historical_earnings("AAPL") == []
+
+
+def test_get_historical_earnings_filters_by_lookback(tmp_cache_root, monkeypatch):
+    today = date.today()
+    idx = pd.to_datetime(
+        [
+            today - timedelta(days=10),
+            today - timedelta(days=100),
+            today - timedelta(days=400),
+        ]
+    )
+    df = pd.DataFrame(
+        {
+            "EPS Estimate": [2.0, 1.9, 1.5],
+            "Reported EPS": [2.3, 1.85, 1.4],
+            "Surprise(%)": [15.0, -2.6, -6.7],
+        },
+        index=idx,
+    )
+    tk = MagicMock()
+    tk.earnings_dates = df
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    events = provider.get_historical_earnings("AAPL", lookback_days=365)
+    assert len(events) == 2
+    assert all(e.date >= today - timedelta(days=365) for e in events)
+
+
+def test_get_historical_earnings_cache_hit(tmp_cache_root, monkeypatch):
+    cached = {
+        "items": [
+            {
+                "ticker": "AAPL",
+                "date": "2024-02-01",
+                "eps_estimate": 2.1,
+                "eps_actual": 2.3,
+                "eps_surprise_pct": 9.5,
+                "revenue_estimate": None,
+                "revenue_actual": None,
+            }
+        ]
+    }
+    cache.write_cache("earnings_history", "yfinance_AAPL_365", cached)
+    mock_get = MagicMock()
+    monkeypatch.setattr(yfinance_provider, "_get_ticker", mock_get)
+    provider = YFinanceProvider()
+    events = provider.get_historical_earnings("AAPL")
+    assert len(events) == 1
+    assert events[0].date == date(2024, 2, 1)
+    assert events[0].eps_surprise_pct == 9.5
+    mock_get.assert_not_called()

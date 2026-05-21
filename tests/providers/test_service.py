@@ -7,7 +7,7 @@ import pytest
 from puts_screener.providers.base import DataProvider, NotSupportedError, ProviderError
 from puts_screener.providers.factory import build_default_data_service
 from puts_screener.providers.finnhub_provider import FinnhubProvider
-from puts_screener.providers.models import EarningsEvent
+from puts_screener.providers.models import EarningsEvent, HistoricalEarningsEvent
 from puts_screener.providers.service import AllProvidersFailedError, DataService
 from puts_screener.providers.yfinance_provider import YFinanceProvider
 
@@ -36,6 +36,7 @@ class FakeProvider(DataProvider):
         analyst=None,
         rating=None,
         earnings=None,
+        historical=None,
     ):
         self.name = name
         self._results = {
@@ -45,6 +46,7 @@ class FakeProvider(DataProvider):
             "get_analyst_data": analyst,
             "get_rating_changes": rating,
             "get_upcoming_earnings": earnings,
+            "get_historical_earnings": historical,
         }
         self.call_log: list[str] = []
 
@@ -82,6 +84,9 @@ class FakeProvider(DataProvider):
     def get_upcoming_earnings(self, ticker, lookforward_days=60):
         return self._serve("get_upcoming_earnings")
 
+    def get_historical_earnings(self, ticker, lookback_days=365):
+        return self._serve("get_historical_earnings")
+
 
 def _service(**kwargs) -> DataService:
     defaults = {
@@ -91,6 +96,7 @@ def _service(**kwargs) -> DataService:
         "analyst_providers": [],
         "rating_providers": [],
         "earnings_providers": [],
+        "historical_earnings_providers": [],
     }
     defaults.update(kwargs)
     return DataService(**defaults)
@@ -103,6 +109,18 @@ def _df(value: float) -> pd.DataFrame:
 def _event() -> EarningsEvent:
     return EarningsEvent(
         ticker="AAPL", date=date(2024, 2, 1), eps_estimate=None, eps_actual=None, when=None
+    )
+
+
+def _hist_event() -> HistoricalEarningsEvent:
+    return HistoricalEarningsEvent(
+        ticker="AAPL",
+        date=date(2024, 2, 1),
+        eps_estimate=2.1,
+        eps_actual=2.3,
+        eps_surprise_pct=9.5,
+        revenue_estimate=None,
+        revenue_actual=None,
     )
 
 
@@ -199,6 +217,17 @@ def test_factory_builds_service_with_correct_types():
     assert [type(p) for p in svc._rating] == [YFinanceProvider]
     assert isinstance(svc._earnings[0], YFinanceProvider)
     assert isinstance(svc._earnings[1], FinnhubProvider)
+    assert [type(p) for p in svc._historical_earnings] == [YFinanceProvider]
+
+
+def test_historical_earnings_empty_is_success():
+    first = FakeProvider("first", historical=[])
+    second = FakeProvider("second", historical=[_hist_event()])
+    svc = _service(historical_earnings_providers=[first, second])
+    result = svc.get_historical_earnings("AAPL")
+    assert result == []
+    assert first.call_log == ["get_historical_earnings"]
+    assert second.call_log == []
 
 
 def test_logging_warning_then_info(caplog):

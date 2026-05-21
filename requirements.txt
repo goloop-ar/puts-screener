@@ -1,0 +1,3 @@
+# Dependencias se van agregando por spec.
+# Cada vez que una spec necesite una librería nueva, se agrega acá
+# y el usuario corre: pip install -r requirements.txt

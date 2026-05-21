@@ -12,6 +12,7 @@ PIVOT_MIN_DEPTH_ATR: float = 1.0  # profundidad mínima vs swing opuesto previo 
 LAST_SWING_LOOKBACK_DAYS: int = 252  # ventana para el último impulso/swing significativo
 LAST_PIVOT_HIGH_LOOKBACK_DAYS: int = 252  # ventana para resistencias rotas (polaridad)
 AVWAP_EARNINGS_LOOKBACK_DAYS: int = 252  # earnings más viejo que esto → AVWAP earnings = None
+AVWAP_52W_HIGH_LOOKBACK_DAYS: int = 252  # ventana para el ancla "último máximo 52w" del AVWAP
 
 # === Fibonacci ===
 FIB_LEVELS: tuple[float, float] = (0.618, 0.786)  # solo los dos retrocesos del SOP

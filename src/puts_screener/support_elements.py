@@ -125,7 +125,12 @@ def fib_levels(
         return []
 
     swing_range = high_price - low_price
-    metadata = {"low_date": pivot_low_last.date.isoformat(), "high_date": high_date}
+    metadata = {
+        "low_date": pivot_low_last.date.isoformat(),
+        "high_date": high_date,
+        "low_price": low_price,
+        "high_price": high_price,
+    }
     fib_618 = high_price - FIB_LEVELS[0] * swing_range
     fib_786 = high_price - FIB_LEVELS[1] * swing_range
     return [

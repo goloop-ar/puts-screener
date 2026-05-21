@@ -127,6 +127,31 @@ def test_fib_levels_uptrend_in_progress_uses_close():
     assert levels["fib_786"] == pytest.approx(110.7)
 
 
+def test_fib_levels_metadata_includes_pivot_prices():
+    """metadata de fib incluye los precios del impulso (low_price/high_price)."""
+    daily = _daily([100.0] * 300)
+    pivots = [
+        _pivot("2026-04-01", 100.0, "low"),
+        _pivot("2026-05-01", 150.0, "high"),
+    ]
+    levels = fib_levels(daily, pivots, close_today=130.0)
+    assert levels
+    for lvl in levels:
+        assert lvl.metadata["low_price"] == pytest.approx(100.0)
+        assert lvl.metadata["high_price"] == pytest.approx(150.0)
+
+
+def test_fib_levels_metadata_in_progress_high_price_is_close():
+    """Subida en curso → high_price en metadata = close_today (techo del impulso)."""
+    daily = _daily([100.0] * 300)
+    pivots = [_pivot("2026-04-01", 100.0, "low")]
+    levels = fib_levels(daily, pivots, close_today=150.0)
+    assert levels
+    for lvl in levels:
+        assert lvl.metadata["low_price"] == pytest.approx(100.0)
+        assert lvl.metadata["high_price"] == pytest.approx(150.0)
+
+
 def test_fib_levels_no_low_pivot():
     """Sin pivot bajo en la ventana → []."""
     daily = _daily([100.0] * 300)

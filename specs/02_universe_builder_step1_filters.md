@@ -42,6 +42,7 @@ El SOP usa lenguaje cualitativo en varios filtros. Las traducciones a código de
 | `MIN_RECOMMENDATION_BUY_RATIO` | `0.5` (mayoría Buy: `(strong_buy + buy) / total >= 0.5`) |
 | `MAX_DOWNGRADES_6W` | `0` (sin downgrades en últimas 6 semanas; aplica solo a US) |
 | **Filtros de momento técnico** | |
+| `RSI_OVERBOUGHT_THRESHOLD` | `70.0` (umbral de sobrecompra — gate excluyente del filtro de momentum) |
 | `RSI_DAILY_THRESHOLD` | `50` (RSI diario actual < 50 con momentum positivo) |
 | `RSI_DAILY_LOOKBACK_DAYS` | `3` (RSI_d_today > RSI_d_3d_ago) |
 | `RSI_WEEKLY_THRESHOLD` | `50` (RSI semanal actual < 50 con momentum positivo) |
@@ -64,7 +65,12 @@ El SOP usa lenguaje cualitativo en varios filtros. Las traducciones a código de
 
 **Implementación**: todas estas constantes viven en `src/puts_screener/config_filters.py` como módulo de constantes (no clases). Los tests y el código de aplicación las importan directamente. Cambiar un threshold no requiere cambiar lógica — solo este archivo.
 
-**Nota sobre "RSI saliendo de sobreventa"**: el SOP original menciona el umbral cualitativo "<35 recuperando". En la implementación operativa adoptamos `<50 con momentum positivo` (más generoso, captura rebotes tempranos antes de tocar 35). Si se quiere ser más estricto, bajar `RSI_DAILY_THRESHOLD` y `RSI_WEEKLY_THRESHOLD` a 35 en `config_filters.py`.
+**Nota sobre filosofía de momentum**: el SOP original define momentum como "RSI saliendo de sobreventa (<35 recuperando)" como filtro positivo. Para venta de puts, el riesgo real es estar SOBRECOMPRADO (corrección probable). La implementación adopta:
+
+- **Gate excluyente**: `RSI_d < 70 AND RSI_w < 70` (no sobrecompra).
+- **Señales positivas informativas** (NO filtran): RSI_d con momentum positivo desde <50, RSI_w idem, MACD subiendo. Se cuentan en `momentum_score` ∈ {0, 1, 2, 3} y se persisten en el candidato para uso futuro (priorización en Paso 2, scoring de soportes).
+
+Ajustable en `config_filters.py`. Para volver al criterio estricto del SOP original, swappear `filter_momentum` por una versión que exija `momentum_score >= 1`.
 
 ## 4. Universe Builder
 
@@ -238,10 +244,12 @@ Lista de filtros:
 
 1. `filter_quality_liquidity` — chequea `profile.market_cap_usd`, `profile.avg_daily_volume_3m`, `financials.free_cash_flow_ttm`.
 2. `filter_valuation` — chequea `analyst.price_target_mean`, `recommendation_buy_ratio`, `downgrades_6w_count`. El chequeo de downgrades se omite si `profile.country` indica EU (yfinance no provee la data).
-3. `filter_momentum` — pasa si **al menos una** de las siguientes condiciones es verdadera:
-   - **RSI diario con momentum positivo**: `rsi_d < RSI_DAILY_THRESHOLD AND rsi_d_today > rsi_d[-RSI_DAILY_LOOKBACK_DAYS-1]`
-   - **RSI semanal con momentum positivo**: `rsi_w < RSI_WEEKLY_THRESHOLD AND rsi_w_today > rsi_w[-RSI_WEEKLY_LOOKBACK_WEEKS-1]`
-   - **O** MACD subiendo desde negativo (ver §5.3 `macd_state`).
+3. `filter_momentum` — chequea SOLO no-sobrecompra (gate excluyente):
+   - `rsi_d < RSI_OVERBOUGHT_THRESHOLD` (default 70).
+   - `rsi_w < RSI_OVERBOUGHT_THRESHOLD` (default 70).
+   - Si alguno está en sobrecompra, falla con razón legible.
+
+   Las señales positivas de momentum (RSI saliendo de sobreventa, MACD subiendo) NO se chequean acá. Se computan aparte como `momentum_score` (ver §7.3 y §8).
 4. `filter_hv_percentile` — chequea `hv_percentile_52w` ∈ [`HV_PERCENTILE_MIN`, `HV_PERCENTILE_MAX`].
 
 **Nota**: la tendencia macro NO es un filtro independiente — está chequeada implícitamente en la clasificación T1–T4 (§6.2). Si un ticker pasa la clasificación, su tendencia ya cumple lo que corresponde a su tipo.
@@ -254,6 +262,26 @@ def apply_step1_filters(candidate: ScreenedCandidate) -> ScreenedCandidate:
 ```
 
 Un candidato pasa si **todos** los filtros aplicables a su tipo retornan `True`.
+
+### 7.3 Cómputo del `momentum_score` informativo
+
+Función separada que NO filtra, solo cuenta señales positivas:
+
+```python
+def compute_momentum_score(candidate: ScreenedCandidate) -> int:
+    """Cuenta señales positivas de momentum. Rango: 0 a 3.
+
+    Señales (cada una vale 1):
+    - RSI_d < RSI_DAILY_THRESHOLD AND rsi_d > rsi_d_3d_ago (RSI diario saliendo de <50, subiendo).
+    - RSI_w < RSI_WEEKLY_THRESHOLD AND rsi_w > rsi_w_2w_ago (RSI semanal idem).
+    - macd_state empieza con "subiendo" (subiendo_negativo o subiendo_positivo).
+
+    NO filtra — el pipeline asigna el resultado a candidate.momentum_score
+    para uso posterior (priorización, scoring de soportes).
+    """
+```
+
+El pipeline (§9, Tanda 3) llama a `compute_momentum_score` después de aplicar los filtros y persiste el resultado.
 
 ## 8. Modelo `ScreenedCandidate`
 
@@ -287,6 +315,7 @@ class ScreenedCandidate:
     rsi_w_2w_ago: float
     macd_state: str
     macd_hist_3d_ago: float
+    momentum_score: int = 0   # 0-3: cuenta señales positivas. Informativo, no filtra.
     atr_14: float
     hv_percentile_52w: float
     
@@ -361,6 +390,7 @@ CREATE TABLE IF NOT EXISTS candidates (
     rsi_w_2w_ago REAL,
     macd_state TEXT,
     macd_hist_3d_ago REAL,
+    momentum_score INTEGER,
     atr_14 REAL,
     hv_percentile_52w REAL,
     price_target_upside_pct REAL,
@@ -476,7 +506,8 @@ tests/screening/
 - **HV Percentile en vez de IV Percentile**: ya documentado en SPEC.md como sustituto temporal hasta integrar data de opciones.
 - **Downgrades 6w para EU**: el filtro se desactiva para tickers EU (yfinance no provee la data). El candidato pasa el filtro de Valoración por default en ese caso.
 - **Paralelismo con 8 workers**: número conservador. yfinance no tiene rate limit duro publicado pero responde mal con >10 conexiones simultáneas.
-- **2026-05-22 — RSI threshold operativo**: el SOP cualitativo dice "<35 recuperando". La implementación adopta `<50 con momentum positivo` (más generoso, captura rebotes tempranos). Ajustable en `config_filters.py`.
 - **2026-05-22 — Tendencia macro implícita en clasificación**: eliminado el filtro independiente; la clasificación T1–T4 ya gateó por tendencia, no se duplica.
 - **2026-05-22 — Filtros con firma uniforme**: todos los filtros del Paso 1 reciben un `ScreenedCandidate` completo, no inputs separados. Simplifica composición y testing.
 - **2026-05-22 — `classify` no recomputa indicadores**: recibe dict ya populado por el pipeline. Evita doble cómputo.
+- **2026-05-22 — Filosofía de momentum invertida**: para venta de puts, el gate excluyente real es la sobrecompra (riesgo de corrección que acerque rápido el strike). `filter_momentum` ahora solo excluye `RSI ≥ 70`; las señales positivas del SOP original (saliendo de sobreventa, MACD subiendo) se cuentan en `momentum_score ∈ {0, 1, 2, 3}` para uso posterior pero NO filtran. Esto reduce falsos negativos y separa "no-malo" (gate) de "bueno" (score). Reversible cambiando una constante en `config_filters.py`.
+- **2026-05-22 — `classify` toma `ScreenedCandidate`**: simplificación de la firma original de §6.1 (5 args separados → 1 candidato completo). Coherente con la firma uniforme de los filtros §7.1.

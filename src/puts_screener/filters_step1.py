@@ -160,10 +160,11 @@ _FILTERS: tuple[tuple[str, Callable[[ScreenedCandidate], tuple[bool, str | None]
 
 
 def apply_step1_filters(candidate: ScreenedCandidate) -> ScreenedCandidate:
-    """Aplica los 4 filtros del Paso 1 y muta el candidato.
+    """Aplica los 4 filtros del Paso 1 + el gate de clasificación, y muta el candidato.
 
     Setea `pasa_filtros_paso_1` y agrega un motivo por cada filtro fallido. NO corta
     en el primer fallo: corre todos para que `motivos_rechazo` tenga la lista completa.
+    Gate final (spec 02 §1): si el candidato no clasifica en T1–T4, no pasa.
     """
     all_pass = True
     for name, fn in _FILTERS:
@@ -171,6 +172,11 @@ def apply_step1_filters(candidate: ScreenedCandidate) -> ScreenedCandidate:
         if not passes:
             all_pass = False
             candidate.motivos_rechazo.append(f"{name}: {reason}")
+
+    # Gate de clasificación (spec 02 §1): candidato final = pasa filtros AND clasifica en T1–T4.
+    if candidate.classification is None or candidate.classification.tipo is None:
+        all_pass = False
+        candidate.motivos_rechazo.append("sin clasificación T1–T4")
 
     candidate.pasa_filtros_paso_1 = all_pass
     return candidate

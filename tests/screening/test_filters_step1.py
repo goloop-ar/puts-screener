@@ -8,6 +8,7 @@ from puts_screener.filters_step1 import (
     filter_quality_liquidity,
     filter_valuation,
 )
+from puts_screener.models_screening import TypeClassification
 
 
 def _with_profile(candidate, **changes):
@@ -230,12 +231,15 @@ def test_filter_hv_percentile_fails_too_high(neutral_candidate):
 
 def test_apply_step1_all_pass(neutral_candidate):
     # neutral_candidate ya pasa los 4 filtros (RSI 60 < 70 → momentum OK por default).
+    neutral_candidate.classification = TypeClassification(tipo="T1", justificacion="x")
     result = apply_step1_filters(neutral_candidate)
     assert result.pasa_filtros_paso_1 is True
     assert result.motivos_rechazo == []
 
 
 def test_apply_step1_collects_all_failures(neutral_candidate):
+    # Clasifica (T1) para aislar los fallos de los 4 filtros del gate de clasificación.
+    neutral_candidate.classification = TypeClassification(tipo="T1", justificacion="x")
     _with_profile(neutral_candidate, market_cap_usd=1e9)  # quality fail
     neutral_candidate.recommendation_buy_ratio = 0.3  # valuation fail
     neutral_candidate.rsi_d = 75.0  # momentum fail (sobrecompra)
@@ -245,3 +249,11 @@ def test_apply_step1_collects_all_failures(neutral_candidate):
     assert len(result.motivos_rechazo) == 3
     prefijos = [m.split(":")[0] for m in result.motivos_rechazo]
     assert prefijos == ["quality_liquidity", "valuation", "momentum"]
+
+
+def test_apply_step1_fails_without_classification(neutral_candidate):
+    # Pasa los 4 filtros pero no clasifica → el gate final lo rechaza (spec 02 §1).
+    neutral_candidate.classification = None
+    result = apply_step1_filters(neutral_candidate)
+    assert result.pasa_filtros_paso_1 is False
+    assert "sin clasificación T1–T4" in result.motivos_rechazo

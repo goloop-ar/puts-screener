@@ -21,6 +21,7 @@ from puts_screener.config_filters import (
     MIN_PRICE_TARGET_UPSIDE,
     MIN_RECOMMENDATION_BUY_RATIO,
     RSI_DAILY_THRESHOLD,
+    RSI_OVERBOUGHT_THRESHOLD,
     RSI_WEEKLY_THRESHOLD,
 )
 from puts_screener.models_screening import ScreenedCandidate
@@ -112,23 +113,29 @@ def filter_valuation(candidate: ScreenedCandidate) -> tuple[bool, str | None]:
 
 
 def filter_momentum(candidate: ScreenedCandidate) -> tuple[bool, str | None]:
-    """Momento técnico — pasa si al menos UNA condición es verdadera:
+    """Momento técnico — gate excluyente de sobrecompra.
 
-    - RSI diario < threshold y subiendo respecto a hace N días.
-    - RSI semanal < threshold y subiendo respecto a hace N semanas.
-    - MACD subiendo (estado empieza con "subiendo").
+    Falla si RSI_d o RSI_w están en zona de sobrecompra (>= RSI_OVERBOUGHT_THRESHOLD).
+
+    Para venta de puts, estar sobrecomprado es el riesgo real (corrección probable
+    que acerca el strike). Las señales positivas de momentum (RSI saliendo de
+    sobreventa, MACD subiendo) NO se chequean acá — se cuentan aparte en
+    `compute_momentum_score()` y se persisten en `candidate.momentum_score` para
+    priorización posterior, pero no filtran.
     """
-    rsi_d_ok = candidate.rsi_d < RSI_DAILY_THRESHOLD and candidate.rsi_d > candidate.rsi_d_3d_ago
-    rsi_w_ok = candidate.rsi_w < RSI_WEEKLY_THRESHOLD and candidate.rsi_w > candidate.rsi_w_2w_ago
-    macd_ok = candidate.macd_state.startswith("subiendo")
+    if candidate.rsi_d >= RSI_OVERBOUGHT_THRESHOLD:
+        return False, f"RSI_d sobrecomprado ({candidate.rsi_d:.1f} ≥ {RSI_OVERBOUGHT_THRESHOLD})"
+    if candidate.rsi_w >= RSI_OVERBOUGHT_THRESHOLD:
+        return False, f"RSI_w sobrecomprado ({candidate.rsi_w:.1f} ≥ {RSI_OVERBOUGHT_THRESHOLD})"
 
-    if rsi_d_ok or rsi_w_ok or macd_ok:
-        return True, None
-
-    return False, (
-        f"momento débil (RSI_d {candidate.rsi_d:.1f}, "
-        f"RSI_w {candidate.rsi_w:.1f}, MACD {candidate.macd_state})"
+    # Éxito: log con el score que tendría (preview del valor que el pipeline persiste).
+    preview_score = compute_momentum_score(candidate)
+    logger.info(
+        "filter_momentum: %s passes (momentum_score will be %d)",
+        candidate.ticker,
+        preview_score,
     )
+    return True, None
 
 
 def filter_hv_percentile(candidate: ScreenedCandidate) -> tuple[bool, str | None]:
@@ -165,3 +172,25 @@ def apply_step1_filters(candidate: ScreenedCandidate) -> ScreenedCandidate:
 
     candidate.pasa_filtros_paso_1 = all_pass
     return candidate
+
+
+def compute_momentum_score(candidate: ScreenedCandidate) -> int:
+    """Cuenta señales positivas de momentum. Rango: 0 a 3.
+
+    Señales (cada una vale 1):
+    - RSI_d saliendo de <50 y subiendo: `rsi_d < RSI_DAILY_THRESHOLD AND rsi_d > rsi_d_3d_ago`.
+    - RSI_w saliendo de <50 y subiendo: `rsi_w < RSI_WEEKLY_THRESHOLD AND rsi_w > rsi_w_2w_ago`.
+    - MACD subiendo: `macd_state` empieza con "subiendo".
+
+    NO filtra. El pipeline (Tanda 3) llama a esta función después de los filtros y
+    asigna el resultado a `candidate.momentum_score` para uso posterior (priorización
+    en el reporte, scoring de soportes en spec 03).
+    """
+    score = 0
+    if candidate.rsi_d < RSI_DAILY_THRESHOLD and candidate.rsi_d > candidate.rsi_d_3d_ago:
+        score += 1
+    if candidate.rsi_w < RSI_WEEKLY_THRESHOLD and candidate.rsi_w > candidate.rsi_w_2w_ago:
+        score += 1
+    if candidate.macd_state.startswith("subiendo"):
+        score += 1
+    return score

@@ -99,3 +99,10 @@ def test_mutable_defaults_are_independent():
     tc1.matches_multiple.append("T3")
     assert tc1.matches_multiple == ["T3"]
     assert tc2.matches_multiple == []
+
+
+def test_screened_candidate_has_momentum_score_default(neutral_candidate):
+    """El campo momentum_score arranca en 0 y es mutable."""
+    assert neutral_candidate.momentum_score == 0
+    neutral_candidate.momentum_score = 3
+    assert neutral_candidate.momentum_score == 3

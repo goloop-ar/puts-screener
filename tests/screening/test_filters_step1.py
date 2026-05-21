@@ -2,6 +2,7 @@ import dataclasses
 
 from puts_screener.filters_step1 import (
     apply_step1_filters,
+    compute_momentum_score,
     filter_hv_percentile,
     filter_momentum,
     filter_quality_liquidity,
@@ -88,33 +89,103 @@ def test_filter_valuation_fails_downgrades_for_us(neutral_candidate):
     assert "downgrades" in reason
 
 
-# --- momentum ---
+# --- momentum (gate de sobrecompra) ---
 
 
-def test_filter_momentum_passes_with_rsi_d(neutral_candidate):
-    neutral_candidate.rsi_d = 40.0
-    neutral_candidate.rsi_d_3d_ago = 35.0
-    assert filter_momentum(neutral_candidate) == (True, None)
+def test_filter_momentum_passes_neutral_rsi(neutral_candidate):
+    """RSI_d=60, RSI_w=60 (ambos < 70) — pasa."""
+    passes, reason = filter_momentum(neutral_candidate)
+    assert passes is True
+    assert reason is None
 
 
-def test_filter_momentum_passes_with_rsi_w_only(neutral_candidate):
-    neutral_candidate.rsi_d = 60.0  # no califica
-    neutral_candidate.rsi_w = 45.0
-    neutral_candidate.rsi_w_2w_ago = 42.0
-    assert filter_momentum(neutral_candidate) == (True, None)
+def test_filter_momentum_passes_low_rsi(neutral_candidate):
+    """RSI bajo (sin chequeo de momentum positivo) — pasa igual."""
+    neutral_candidate.rsi_d = 35.0
+    neutral_candidate.rsi_w = 40.0
+    passes, _ = filter_momentum(neutral_candidate)
+    assert passes is True
 
 
-def test_filter_momentum_passes_with_macd_only(neutral_candidate):
-    neutral_candidate.rsi_d = 60.0
-    neutral_candidate.rsi_w = 60.0
-    neutral_candidate.macd_state = "subiendo_negativo"
-    assert filter_momentum(neutral_candidate) == (True, None)
-
-
-def test_filter_momentum_fails_all_neutral(neutral_candidate):
+def test_filter_momentum_fails_rsi_d_overbought(neutral_candidate):
+    neutral_candidate.rsi_d = 72.0
     passes, reason = filter_momentum(neutral_candidate)
     assert passes is False
-    assert "momento débil" in reason
+    assert "RSI_d" in reason
+    assert "sobrecomprado" in reason
+
+
+def test_filter_momentum_fails_rsi_w_overbought(neutral_candidate):
+    neutral_candidate.rsi_w = 75.0
+    passes, reason = filter_momentum(neutral_candidate)
+    assert passes is False
+    assert "RSI_w" in reason
+
+
+def test_filter_momentum_fails_at_exact_threshold(neutral_candidate):
+    """RSI exactamente en 70 — la comparación es >=, falla."""
+    neutral_candidate.rsi_d = 70.0
+    passes, _ = filter_momentum(neutral_candidate)
+    assert passes is False
+
+
+# --- momentum_score (informativo) ---
+
+
+def test_momentum_score_zero_neutral(neutral_candidate):
+    assert compute_momentum_score(neutral_candidate) == 0
+
+
+def test_momentum_score_one_rsi_d_only(neutral_candidate):
+    neutral_candidate.rsi_d = 40.0
+    neutral_candidate.rsi_d_3d_ago = 35.0
+    assert compute_momentum_score(neutral_candidate) == 1
+
+
+def test_momentum_score_one_rsi_w_only(neutral_candidate):
+    neutral_candidate.rsi_w = 45.0
+    neutral_candidate.rsi_w_2w_ago = 42.0
+    assert compute_momentum_score(neutral_candidate) == 1
+
+
+def test_momentum_score_one_macd_only(neutral_candidate):
+    neutral_candidate.macd_state = "subiendo_negativo"
+    assert compute_momentum_score(neutral_candidate) == 1
+
+
+def test_momentum_score_two(neutral_candidate):
+    neutral_candidate.rsi_d = 40.0
+    neutral_candidate.rsi_d_3d_ago = 35.0
+    neutral_candidate.macd_state = "subiendo_positivo"
+    assert compute_momentum_score(neutral_candidate) == 2
+
+
+def test_momentum_score_three_full(neutral_candidate):
+    neutral_candidate.rsi_d = 40.0
+    neutral_candidate.rsi_d_3d_ago = 35.0
+    neutral_candidate.rsi_w = 45.0
+    neutral_candidate.rsi_w_2w_ago = 42.0
+    neutral_candidate.macd_state = "subiendo_positivo"
+    assert compute_momentum_score(neutral_candidate) == 3
+
+
+def test_momentum_score_rsi_d_not_active_when_above_threshold(neutral_candidate):
+    """RSI_d = 55 (≥ 50) NO suma aunque venga subiendo."""
+    neutral_candidate.rsi_d = 55.0
+    neutral_candidate.rsi_d_3d_ago = 50.0
+    assert compute_momentum_score(neutral_candidate) == 0
+
+
+def test_momentum_score_rsi_d_not_active_when_falling(neutral_candidate):
+    """RSI_d bajo pero bajando NO suma."""
+    neutral_candidate.rsi_d = 35.0
+    neutral_candidate.rsi_d_3d_ago = 40.0
+    assert compute_momentum_score(neutral_candidate) == 0
+
+
+def test_momentum_score_macd_bajando_not_active(neutral_candidate):
+    neutral_candidate.macd_state = "bajando_negativo"
+    assert compute_momentum_score(neutral_candidate) == 0
 
 
 # --- hv percentile ---
@@ -143,9 +214,7 @@ def test_filter_hv_percentile_fails_too_high(neutral_candidate):
 
 
 def test_apply_step1_all_pass(neutral_candidate):
-    # ajustar momentum para que pase (el resto ya pasa por default)
-    neutral_candidate.rsi_d = 40.0
-    neutral_candidate.rsi_d_3d_ago = 35.0
+    # neutral_candidate ya pasa los 4 filtros (RSI 60 < 70 → momentum OK por default).
     result = apply_step1_filters(neutral_candidate)
     assert result.pasa_filtros_paso_1 is True
     assert result.motivos_rechazo == []
@@ -154,7 +223,7 @@ def test_apply_step1_all_pass(neutral_candidate):
 def test_apply_step1_collects_all_failures(neutral_candidate):
     _with_profile(neutral_candidate, market_cap_usd=1e9)  # quality fail
     neutral_candidate.recommendation_buy_ratio = 0.3  # valuation fail
-    # momentum fail (RSI 60 neutral, MACD neutral por default)
+    neutral_candidate.rsi_d = 75.0  # momentum fail (sobrecompra)
     neutral_candidate.hv_percentile_52w = 50.0  # hv pasa
     result = apply_step1_filters(neutral_candidate)
     assert result.pasa_filtros_paso_1 is False

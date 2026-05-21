@@ -7,6 +7,7 @@ _EXPECTED_CONSTANTS = {
     "MIN_PRICE_TARGET_UPSIDE": float,
     "MIN_RECOMMENDATION_BUY_RATIO": float,
     "MAX_DOWNGRADES_6W": int,
+    "RSI_OVERBOUGHT_THRESHOLD": float,
     "RSI_DAILY_THRESHOLD": float,
     "RSI_DAILY_LOOKBACK_DAYS": int,
     "RSI_WEEKLY_THRESHOLD": float,
@@ -48,3 +49,5 @@ def test_sanity_values():
     assert cfg.T4_DROP_THRESHOLD < 0
     assert 0 < cfg.T4_TOLERANCIA_TENDENCIA < 1
     assert 0 < cfg.T3_PRICE_FLOOR_FRACTION < 1
+    assert cfg.RSI_OVERBOUGHT_THRESHOLD > cfg.RSI_DAILY_THRESHOLD
+    assert cfg.RSI_OVERBOUGHT_THRESHOLD <= 100.0

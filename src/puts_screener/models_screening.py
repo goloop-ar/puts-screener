@@ -57,6 +57,7 @@ class ScreenedCandidate:
     rsi_w_2w_ago: float = 0.0
     macd_state: str = "neutral"
     macd_hist_3d_ago: float = 0.0
+    momentum_score: int = 0  # 0-3: cuenta señales positivas. Informativo, no filtra.
     atr_14: float = 0.0
     hv_percentile_52w: float = 0.0
 

@@ -137,9 +137,9 @@ def sma_200_levels(ohlcv_daily: pd.DataFrame, ohlcv_weekly: pd.DataFrame) -> lis
 
 ```python
 def polarity_levels(
+    ohlcv_daily: pd.DataFrame,
     pivots: list[Pivot],
     close_today: float,
-    today: pd.Timestamp,
 ) -> list[SupportLevel]:
     """Pivots altos de los últimos LAST_PIVOT_HIGH_LOOKBACK_DAYS que el precio ya superó."""
 ```
@@ -156,9 +156,9 @@ Algoritmo:
 
 ```python
 def fib_levels(
+    ohlcv_daily: pd.DataFrame,
     pivots: list[Pivot],
     close_today: float,
-    today: pd.Timestamp,
 ) -> list[SupportLevel]:
     """Niveles 61.8% y 78.6% del último impulso alcista significativo.
     
@@ -190,7 +190,6 @@ def avwap_levels(
     ohlcv_daily: pd.DataFrame,
     pivots: list[Pivot],
     last_earnings_date: pd.Timestamp | None,
-    today: pd.Timestamp,
 ) -> list[SupportLevel]:
     """Hasta 3 AVWAPs: desde último pivot bajo, último earnings, último máximo 52w."""
 ```
@@ -641,3 +640,4 @@ tests/supports/
 - **Persistir todas las zonas (válidas y rechazadas)**: misma política del Paso 1 con candidatos. Permite backtesting del proceso de selección.
 - **Caso borde "subida en curso" en fibs**: si no hay pivot alto posterior al último pivot bajo (estamos en plena suba), usar `close_today` como cierre del impulso. Los fibs se proyectan sobre lo ya subido.
 - **Pivots no confirmados de las últimas N barras**: se ignoran. Correcto y esperado: un pivot requiere N barras a derecha para confirmar.
+- **Firmas de elementos sin parámetro `today`**: post-cleanup de Tanda 2, las funciones derivan `today` internamente de `ohlcv_daily.index[-1]`. Coherente con el principio de unificar lookback en días hábiles desde el índice del OHLCV.

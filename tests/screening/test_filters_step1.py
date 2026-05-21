@@ -220,7 +220,7 @@ def test_filter_hv_percentile_fails_too_low(neutral_candidate):
 
 
 def test_filter_hv_percentile_fails_too_high(neutral_candidate):
-    neutral_candidate.hv_percentile_52w = 85.0
+    neutral_candidate.hv_percentile_52w = 95.0  # > 90 (techo elevado de 80 a 90)
     passes, reason = filter_hv_percentile(neutral_candidate)
     assert passes is False
     assert ">" in reason

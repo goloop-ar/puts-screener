@@ -29,7 +29,10 @@ MACD_NEUTRAL_PCT_CHANGE: float = 0.05
 
 # === Filtros de volatilidad ===
 HV_PERCENTILE_MIN: float = 30.0
-HV_PERCENTILE_MAX: float = 80.0
+# Elevado de 80 a 90: HV (volatilidad realizada) está sistémicamente más alta que IV percentile
+# en el universo actual. SPEC §2 marca HV como sustituto temporal — cuando se integre IV real
+# (Fase 4), volver a 80 y aplicar excepción T2→90 del SOP.
+HV_PERCENTILE_MAX: float = 90.0
 
 # === Clasificación T1–T4 ===
 T2_DROP_PCT_5D: float = -0.10

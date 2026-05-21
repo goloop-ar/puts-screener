@@ -31,9 +31,9 @@ El filtro de IV Percentile (52w) del SOP se reemplaza en esta fase por **HV Perc
 
 - Python 3.11+
 - Fuentes de datos (stack free, diseñado para swap):
-  - **OHLCV histórico**: Stooq (primario, estable), yfinance (fallback)
-  - **Fundamentals (Market Cap, FCF, sector)**: yfinance (primario), Finnhub (complementario)
-  - **Analistas + Earnings**: Finnhub free tier (60 req/min)
+  - **OHLCV histórico**: yfinance (único en el stack default desde 2026-05-21; Stooq quedó fuera por requerimiento de API key)
+  - **Fundamentals (Market Cap, FCF, sector)**: yfinance primario, Finnhub como fallback opcional
+  - **Analistas (price target, recommendations) + Earnings + Rating changes**: yfinance primario, Finnhub como fallback opcional para US
 - Cálculos técnicos: pandas-ta + lógica propia
 - Persistencia: SQLite local (committed al repo)
 - Reportes: HTML estático + CSV
@@ -42,6 +42,13 @@ El filtro de IV Percentile (52w) del SOP se reemplaza en esta fase por **HV Perc
 ### Diseño para swap
 
 Todas las fuentes de data se implementan detrás de una interfaz abstracta `DataProvider`. La lógica de negocio nunca llama directo a yfinance/Stooq/Finnhub. Esto permite migrar a EODHD, FMP, fiscal.ai o IBKR en el futuro sin reescribir nada.
+
+### Limitaciones conocidas del stack free
+
+- **Stooq requiere API key desde marzo 2026**. Implementado pero fuera del default. Se puede reactivar agregando la key al `.env`.
+- **Finnhub free está degradado**: `price_target` y `upgrade_downgrade` devuelven 403; tickers EU devuelven 403 en todos los endpoints. Solo sirve como fallback para `recommendation_trends` y `company_profile2` en US.
+- **Rating changes para tickers EU no están disponibles** en yfinance (devuelve lista vacía). El filtro del SOP "downgrades últimas 6 semanas" se aplicará solo a tickers US en la práctica.
+- **Datos delayed** (no real-time). Para batch diario post-cierre es suficiente.
 
 ## 4. Output esperado
 

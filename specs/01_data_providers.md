@@ -151,7 +151,7 @@ class DataProvider(ABC):
 
 ### 5.2 `YFinanceProvider` (`providers/yfinance_provider.py`)
 
-- **Soporta**: `get_ohlcv`, `get_company_profile`, `get_financials`, `get_upcoming_earnings`
+- **Soporta**: `get_ohlcv`, `get_company_profile`, `get_financials`, `get_analyst_data`, `get_rating_changes`, `get_upcoming_earnings`.
 - **Wrapper**: `yfinance.Ticker`
 - **Detalles**:
   - `get_ohlcv` → `Ticker.history(start=..., end=..., interval=...)`. Renombrar columnas a las canónicas.
@@ -160,6 +160,22 @@ class DataProvider(ABC):
   - `get_upcoming_earnings` → `Ticker.calendar` con la fecha más cercana en el futuro dentro de `lookforward_days`.
 - **Manejo de errores**: yfinance silenciosamente devuelve DataFrames vacíos o dicts incompletos. Validar y propagar como `ProviderError` con mensaje claro.
 - **Cache**: sí.
+
+#### `get_analyst_data`
+
+- Cache: `get_cached("analyst", f"yfinance_{ticker}")`.
+- Lee `tk.info` para `recommendationMean`, `numberOfAnalystOpinions`, `targetMeanPrice`/`Median`/`High`/`Low`.
+- Lee `tk.recommendations` (DataFrame con filas por mes); toma la fila `period == "0m"` (fallback `"-1m"`, sino counts = 0) para los counts `strongBuy`/`buy`/`hold`/`sell`/`strongSell`.
+- `recommendation_mean` viene directo de yfinance (no se computa).
+- Si los tres campos (mean, n_analysts, target_mean) son todos None → `ProviderError`.
+
+#### `get_rating_changes`
+
+- Cache: `get_cached("ratings", f"yfinance_{ticker}_{lookback_weeks}")`.
+- Lee `tk.upgrades_downgrades` (DataFrame indexado por `GradeDate`).
+- Si es None o vacío → devuelve `[]` (NO error). yfinance no provee esta data para tickers EU.
+- Filtra por `index >= today - lookback_weeks`.
+- Normaliza `Action`: `"up"`→`"upgrade"`, `"down"`→`"downgrade"`, `"init"`→`"initiation"`, `"main"`/`"reit"`→`"reiterated"`.
 
 ### 5.3 `FinnhubProvider` (`providers/finnhub_provider.py`)
 
@@ -213,16 +229,15 @@ class DataService:
 
 ```python
 def build_default_data_service() -> DataService:
-    stooq = StooqProvider()
     yf = YFinanceProvider()
     fh = FinnhubProvider()  # se autodeshabilita si no hay key
     return DataService(
-        ohlcv_providers=[stooq, yf],
+        ohlcv_providers=[yf],
         profile_providers=[yf, fh],
         financials_providers=[yf],
-        analyst_providers=[fh],
-        rating_providers=[fh],
-        earnings_providers=[fh, yf],
+        analyst_providers=[yf, fh],
+        rating_providers=[yf],
+        earnings_providers=[yf, fh],
     )
 ```
 
@@ -447,3 +462,5 @@ tests/
 - **Cache en disco vs memoria**: disco. Sobrevive a reinicios y a GitHub Actions ephemeral runners (cuando lleguemos a esa fase, el repo lleva el cache).
 - **Manejo de Europa**: cobertura inicial 14 exchanges. Si aparecen necesidades de Stoxx no cubiertos (Praga, Varsovia, Atenas), se agregan a la tabla.
 - **Tickers ADR**: por ahora se tratan como US. Los duals listings europeos se identifican por el sufijo.
+- **Post-smoke-test 2026-05-21**: Stooq removido del default por cambio a API key en marzo 2026. yfinance asumió el rol de provider primario en todos los métodos. Finnhub queda como fallback opcional solo para US. Stooq sigue implementado y testeado para uso futuro.
+- **Rating changes en EU**: yfinance no provee `upgrades_downgrades` para tickers europeos. El método retorna lista vacía sin error. El filtro de "downgrades 6w" del SOP se aplicará efectivamente solo a tickers US.

@@ -72,6 +72,69 @@ Segmentación de universos: tres universos predefinidos (`sp500`, `nasdaq100`, `
 
 Output del run rápido SP500-only ahora en ~12s (vs ~14 min del universo completo). Habilita iteración rápida del refactor de scoring siguiente.
 
+### Etapa 2 del rework de scoring (ROADMAP §3.5) ✅ Cerrada (2026-05-22)
+
+Fix de polaridad + gate de distancia mínima + rename `sma_200d`→`ema_200d`.
+
+- [x] `SupportLevel.side: Literal["support", "resistance"]` derivado de `price < spot`.
+- [x] `cluster_into_zones` filtra `side=='support'`. Eliminado `_SPOT_UPPER_MARGIN`.
+- [x] `support_scoring` rechaza zonas con `distance_pct < ZONE_MIN_DISTANCE_PCT (0.03)`.
+- [x] Rename literal `sma_200d` → `ema_200d` (la EMA siempre estuvo mal nombrada).
+- [x] Categoría `sma_200` en `compute_zone_score`: `(sma_200w, ema_200d)`.
+- [x] Validación empírica (--limit 50): 4 candidatos finales (vs 8 pre-Etapa 2). APP/AMAT/ACGL/APO cayeron por dist < 3%. Confirma que elementos overhead inflados pre-fix se removieron correctamente.
+
+Commit `6b15b94`. 347 tests verdes.
+
+### Etapa 3 del rework de scoring (ROADMAP §3.5) ✅ Cerrada (2026-05-22)
+
+Agregar SMA200D real + SMA50D + SMA50W + EMA50D como elementos de soporte.
+
+- [x] Nuevas helpers en `indicators.py`: `sma_daily`, `ema_daily` (devuelven `None` si insuficiente data).
+- [x] `sma_200_levels` extendida: ahora genera hasta 3 levels (SMA200W + EMA200D + SMA200D real).
+- [x] Nueva `sma_50_levels`: SMA50D + SMA50W + EMA50D (reutiliza `sma_weekly` existente con `weeks=50`).
+- [x] `compute_zone_score`: categoría `sma_200` agrupa los 3 labels de 200; nueva categoría `sma_50` agrupa los 3 de 50.
+- [x] Pesos sin cambios (SMA200=2, resto=1) — la ponderación diferenciada es Etapa 4.
+- [x] DYNAMIC_CONFIRMERS intacto (las MAs nuevas no son confirmadores).
+- [x] Validación empírica (--limit 50): 5 candidatos finales con scores 3-7. Scores 5 confirman dedup correcta (sma_200 con SMA200D + SMA200W + EMA200D dedupean a 2 pts, no 6).
+
+Commit `6bad46e`. 358 tests verdes.
+
+### Etapa 4 del rework de scoring (ROADMAP §3.5) ✅ Cerrada (2026-05-22)
+
+Ponderación diferenciada + gate estructural + sacar DIVERGENCIA/FIB_786 del score.
+
+- [x] `ELEMENT_WEIGHTS` dict con pesos float 0.0-3.0 por elemento.
+- [x] `compute_zone_score` → `float`. Por categoría aplica el MAX peso entre elementos presentes (dedup conserva el peso del más fuerte).
+- [x] DIVERGENCIA y FIB_786 con peso 0.0 (informativos). DIVERGENCIA sigue siendo confirmador dinámico.
+- [x] Gate estructural nuevo: zona requiere ≥2 elementos individuales con peso ≥ 2.5 (MIN_HEAVY_ELEMENTS=2, HEAVY_ELEMENT_WEIGHT_THRESHOLD=2.5).
+- [x] SCORE_MIN_VALID: 3 → 5.0 (float, provisional para calibración).
+- [x] Nuevo campo `ScreenedCandidate.momentum_signals: tuple[str, ...]` con flags de divergencia (rsi/macd/both) de la best_zone, sin afectar score.
+- [x] Persistencia: nueva columna `candidates.momentum_signals_json` con migración idempotente. `support_zones.score` queda INTEGER en schema pero SQLite acepta REAL transparente.
+- [x] CSV columna 41 `momentum_signals`. Score formateado con 1 decimal ("10.0").
+- [x] HTML: sección de "Señales de momentum" por card si hay divergence; elementos ordenados por ELEMENT_WEIGHTS descendente.
+
+**Validación empírica a escala (--limit 200):**
+
+- 48/200 (24%) pasaron Paso 1.
+- 13/200 (6.5%) pasaron Paso 2 con best_zone válida.
+- Distribución de scores: rango 5.5 - 15.5, mediana ~10.0 (cluster en composición arquetípica sma_200+sma_50+hvn+polarity).
+- Distribución de distancias: 54% en 3-5%, 23% en 5-7%, 23% en 7-10%.
+- 100% T1 (régimen actual alcista; T2/T3/T4 esperables en regímenes distintos — no es bug).
+- Wall-time 36s para 200 tickers.
+- Caso testigo del fix (AXON): cayó por gate estructural — sus elementos eran DIVERGENCIA + GAP + FIB_786 + FIB_618 (suma 2.5, 0 heavy elements). Era el bug original que el rework apuntaba a resolver.
+
+**Conclusión:** thresholds bien calibrados, no requieren ajuste.
+
+Commit `218eff7`. 372 tests verdes.
+
+### Rework de scoring (ROADMAP §3.5) ✅ COMPLETO (Etapas 1-4)
+
+Pipeline de Paso 2 reescrito desde primeros principios: polaridad corregida, MAs reales completas (SMA200D/W/EMA200D/SMA50D/W/EMA50D), ponderación por elemento, gates de validez compuestos (score numérico + estructural + distancia mín/máx + side + confirmador dinámico). Output estructuralmente más fuerte y selectivo que la versión previa: 6.5% de los tickers pasan vs ~30% pre-rework, con scores que reflejan confluencia real y no doble-conteo.
+
+Etapas 5 y 6 del plan original quedan en backlog (§4):
+- Etapa 5 (filtro de swing range en fibs): perdió prioridad porque Etapa 4 ya neutralizó el problema (FIB_786 peso 0.0, FIB_618 peso 1.5 no califica como heavy).
+- Etapa 6 (Volume Profile real con intradía): postergada a Fase 4 (data de opciones / IBKR / paid providers).
+
 ### Hardening yfinance + observabilidad ✅ (2026-05-22)
 
 Endurecimiento de la capa de data tras diagnosticar 55.8% de skip rate a universo completo (985):
@@ -108,19 +171,7 @@ Endurecimiento de la capa de data tras diagnosticar 55.8% de skip rate a univers
 
 ## 2. En vuelo (issues abiertos)
 
-**Rework del scoring de soportes** (prioridad alta) — el diagnóstico reveló un bug de polaridad y
-otros problemas estructurales (plan en §3.5). Es el próximo bloque de trabajo, antes de Fase 3.
-
-Diagnóstico (run `cdaadca1`, caso testigo RTX):
-- **Bug de polaridad confirmado**: elementos por encima del spot (hasta `spot×1.02`) entran al
-  clustering y suman al score como soporte. En RTX, 3 de 8 elementos de la best_zone eran overhead
-  (EMA200D@178.23, AVWAP_earnings@176.69, HVN@176.04; spot $175.98).
-- **Misnaming confirmado**: el elemento `sma_200d` en código es una EMA (`ewm(span=200)`), no SMA.
-  No existe una SMA200D real.
-- **Score sin ponderar**: conteo de categorías distintas con dedup (SMA200=2 pts, resto=1 pt).
-- **T1/T2/T3 es del candidato, no de la zona** (`classification.py`); las zonas solo tienen score numérico.
-- **`best_zone` se elige por `(-score, distance_pct)`**: favorece zonas donde el precio ya está parado.
-- **Fibs** bien calibrados (swing 252 ruedas) pero swings chicos en rango → fibs comprimidos / confluencia artificial.
+**Sin issues abiertos.** Próximo bloque de trabajo: Fase 3 (GitHub Actions + Pages) o Fase 5 (web app local), según prioridad.
 
 ---
 
@@ -182,20 +233,20 @@ las Fases de producto de §3.2–3.4).
 - Outputs separados por universo.
 - Objetivo: runs de validación en 6-8 min (solo S&P 500) en lugar de 14 min (985 tickers).
 
-**Etapa 2 — Fix de polaridad + pre-filtro + misnaming**
+**Etapa 2 — Fix de polaridad + pre-filtro + misnaming** ✅ Cerrada (2026-05-22, commit `6b15b94`).
 - `_SPOT_UPPER_MARGIN` de 1.02 → 1.00 (solo niveles bajo el spot entran al clustering).
 - Campo `side` en `SupportLevel`: `support` / `resistance` / `neutral`.
 - Solo elementos `side=support` cuentan para el score.
 - Renombrar `sma_200d` → `ema_200d` en código y DB.
 - `ZONE_MIN_DISTANCE_PCT = 0.03`: zonas a menos del 3% del spot no son accionables para 30-45 DTE.
 
-**Etapa 3 — Agregar medias móviles**
+**Etapa 3 — Agregar medias móviles** ✅ Cerrada (2026-05-22, commit `6bad46e`).
 - SMA200D real (rolling mean diario, 200 velas).
 - SMA50D (rolling mean diario, 50 velas).
 - SMA50W (rolling mean semanal, 50 velas).
 - EMA50D (exponencial diario, span=50).
 
-**Etapa 4 — Ponderación y umbrales**
+**Etapa 4 — Ponderación y umbrales** ✅ Cerrada (2026-05-22, commit `218eff7`).
 - Pesos propuestos: SMA200D real 3.0 · SMA200W 3.0 · POLARIDAD 3.0 · EMA200D 2.5 · SMA50D 2.5 ·
   AVWAP_pivot_low 2.5 · AVWAP_earnings 2.5 · 52-week low 2.0 · SMA50W 2.0 · HVN/POC 2.0 · EMA50D 1.5 ·
   FIB_618 1.5 · GAP (no rellenado, >X%) 1.0.
@@ -204,11 +255,11 @@ las Fases de producto de §3.2–3.4).
 - Umbrales (pendiente calibración post-implementación): requerir ≥2 elementos de peso ≥2.5 para
   zona válida; recalibrar `SCORE_MIN_VALID` con el sistema ponderado.
 
-**Etapa 5 — Fibs con filtro de rango mínimo**
+**Etapa 5 — Fibs con filtro de rango mínimo** ⏸️ Postergada (ver §4 — Etapa 4 ya neutralizó el bug).
 - Requerir `swing_range > X%` del precio para computar FIB_618.
 - Objetivo: eliminar fibs de swings chicos en rango que generan confluencia artificial.
 
-**Etapa 6 (backlog) — Value Area Low (Volume Profile completo)**
+**Etapa 6 (backlog) — Value Area Low (Volume Profile completo)** ⏸️ Postergada a Fase 4 (requiere data intradía).
 - Postergado para segunda iteración.
 - Reemplazar HVN genérico por POC real + VAL.
 
@@ -235,6 +286,12 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Encoding Windows cp1252 en stdout**: caracteres acentuados (e.g. 'días') aparecen como mojibake en consola Windows. Los archivos CSV/HTML quedan en UTF-8 correctamente. Solo afecta display de consola, no datos. Si molesta, se puede forzar UTF-8 en stdout con `sys.stdout.reconfigure(encoding='utf-8')` al inicio de `run.py`.
 - **Endurecer firma de `run_screening` / `run_final_pipeline` (dict-only)**: hoy aceptan `list[str] | dict[str,set]` por backward-compat con smoke tests y stubs. El path de producción (`run.py`) pasa el dict y todo funciona, pero un caller futuro que pase lista heredaría `universes=()` silenciosamente. Bajo riesgo (un solo caller productivo), pero conviene endurecer cuando alguna spec posterior toque esos modules.
 - **Threshold `ZONE_MIN_DISTANCE_PCT=0.03` en Etapa 2 — observación previa**: el run de validación de Etapa 1 mostró que 2 de 8 candidatos finales (APP 2.6%, ABNB borderline 3.5%) están cerca o debajo del threshold planificado. Si Etapa 2 lo implementa tal cual, podríamos perder ~25% del output. Validar empíricamente post-implementación; si el output queda muy seco, considerar bajar a 0.02 o 0.015.
+- **`points` field vestigial en `SupportLevel`** (post-Etapa 4): el campo quedó como `float = 0.0` por blast-radius. El peso real vive en `ELEMENT_WEIGHTS` keyed por element. Riesgo bajo de drift; aprovechar cuando alguna spec posterior toque `support_elements.py`.
+- **`ema_daily` exige `len < length → None`** (post-Etapa 3): conceptualmente una EMA produce valores desde el primer dato, no requiere warmup. Decidido como `None` por consistencia con `sma_daily`. No es problema para uso real (OHLCV de producción siempre >200 días). Revisar si en el futuro se agregan tickers con histórico corto.
+- **`reports_csv._ELEMENT_LABELS` sin fallback `sma_200d` (legacy)**: post-Etapa 2 se renombró sin dejar fallback. Si en el futuro se hace un "reimprimir reporte de run viejo" (no existe hoy), el rendering de registros con `sma_200d` legacy caería al default.
+- **Endurecer firma `run_screening`/`run_final_pipeline` a dict-only**: hoy aceptan `list[str] | dict[str,set]` por compat con smoke tests. Path productivo siempre pasa dict.
+- **Sesgo a T1=100% en régimen alcista actual**: validación con --limit 200 sobre S&P 500 dio 13/13 T1. Esperable, pero anotar para confirmar en régimen distinto (T2 debería aparecer en pánicos, T4 en correcciones post-earnings, T3 en lateralizaciones macro).
+- **Calibración futura de `SCORE_MIN_VALID` y `MIN_HEAVY_ELEMENTS`**: thresholds provisionales 5.0 y 2 fijados con muestra de 200. Con varias corridas históricas semanales sobre el universo completo, definir si el output es estable o requiere ajuste.
 
 ---
 
@@ -266,6 +323,10 @@ Para no buscarlas en specs:
 - **2026-05-21 — Issue 2.5 cerrado, `MIN_RECOMMENDATION_BUY_RATIO` bajado de 0.5 a 0.45**: 8 candidatos near-miss en [0.45, 0.5) con upside positivo (BP.L +10.8% buy 0.47, CHD +6.3% buy 0.48, etc.) fallaban por 0.02-0.03 puntos. El SOP exige "mayoría Buy"; 0.45 sigue siendo ligera mayoría (45% Buy vs 55% Hold/Sell). Los 36 candidatos con buy_ratio <0.3 siguen filtrados como rechazos legítimos.
 - **2026-05-22 — Etapa 1 cerrada con `list | dict` en pipelines (no dict-only puro)**: la spec original decía "recibe el dict y pasa el tag", pero 8+ callers existentes (smoke tests + tests de pipeline) pasan listas y la spec no los listaba para actualizar. Decisión pragmática: `run_screening` y `run_final_pipeline` aceptan ambos; si llega dict, derivan tags; si llega lista, `universes=()`. `run.py` siempre pasa dict, así que producción siempre etiqueta. Endurecimiento a dict-only queda en backlog (§4) para una iteración futura cuando se justifique tocar esos modules por otra razón.
 - **2026-05-22 — Caches de universo gitignored (sp500.json, nasdaq100.json, stoxx600.json)**: los tres son regenerables vía `build_universe(..., refresh=True)` (Wikipedia es estable y el fetch toma segundos). No se commitean porque (a) tienen TTL de 7 días y se desactualizan, (b) son derivables del código sin pérdida, (c) gitignored es el patrón estándar para caches. Inconsistencia previa (suponer que sp500/stoxx600 estaban commiteados) corregida sin commitear nada nuevo.
+- **2026-05-22 — Etapa 2: `side` binario sobre `SupportLevel`**: derivado de `price < spot`. Resistance NO entra al clustering. Reemplaza el viejo `_SPOT_UPPER_MARGIN=1.02` que tenía el bug confirmado en RTX.
+- **2026-05-22 — Etapa 3: dedup SMA200 con 3 labels y nueva categoría SMA50**: `sma_200 = {sma_200w, ema_200d, sma_200d}` (todos suman 2 pts dedupeados pre-Etapa 4; con peso máx post-Etapa 4). `sma_50 = {sma_50d, sma_50w, ema_50d}` análogo.
+- **2026-05-22 — Etapa 4: `compute_zone_score` ahora aplica MAX peso por categoría, no suma**: cuando una zona tiene SMA200W (3.0) + EMA200D (2.5) + SMA200D (3.0) dentro de la misma categoría sma_200, aporta 3.0 (max), no 8.5 (suma). Preserva la intención de dedup pero respeta la jerarquía de pesos diferenciados.
+- **2026-05-22 — Etapa 4: gate estructural compuesto con gate numérico**: una zona necesita `score >= 5.0` AND `>= 2 elementos individuales con peso >= 2.5`. Diseñado para rechazar tanto zonas con score-inflado por acumulación de pesos chicos como zonas con un solo elemento heavy aislado. Validación a escala (n=200) confirma calibración correcta.
 
 ---
 

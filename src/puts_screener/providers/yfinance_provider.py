@@ -2,10 +2,14 @@
 
 import dataclasses
 import logging
+import random
+import time
 from datetime import date, datetime, timedelta
 
 import pandas as pd
+import requests
 import yfinance as yf
+from yfinance.exceptions import YFRateLimitError
 
 from .base import DataProvider, ProviderError
 from .cache import get_cached, read_ohlcv_slice, write_cache, write_ohlcv
@@ -23,6 +27,58 @@ from .tickers import to_yfinance
 logger = logging.getLogger(__name__)
 
 _CANONICAL_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
+
+# Errores transitorios de yfinance que vale la pena reintentar (429, red).
+_TRANSIENT_EXCEPTIONS = (
+    YFRateLimitError,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+)
+# Substrings que delatan errores transitorios sin tipo dedicado (401 Invalid Crumb, etc.).
+_TRANSIENT_MESSAGE_MARKERS = ("invalid crumb", "401", "429", "too many requests", "rate limit")
+
+
+def _is_transient(exc: Exception) -> bool:
+    """True si el error es transitorio (rate limit, crumb inválido, red) y conviene reintentar."""
+    if isinstance(exc, _TRANSIENT_EXCEPTIONS):
+        return True
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _TRANSIENT_MESSAGE_MARKERS)
+
+
+def _with_retry(fn, *, method: str, max_attempts: int, base_delay: float):
+    """Ejecuta fn() reintentando solo errores transitorios, con backoff exponencial + jitter.
+
+    Backoff: base_delay * 2**(intento-1), con jitter ±25%. Errores NO transitorios (KeyError,
+    schema, etc.) se propagan en el primer intento sin esperar. Si se agotan los reintentos,
+    propaga la última excepción (que el método convierte en ProviderError o degrada).
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            transient = _is_transient(exc)
+            if not transient or attempt == max_attempts:
+                if transient:
+                    logger.warning(
+                        "Retries exhausted (%d/%d) for %s, propagating %s",
+                        attempt,
+                        max_attempts,
+                        method,
+                        type(exc).__name__,
+                    )
+                raise
+            delay = base_delay * (2 ** (attempt - 1)) * random.uniform(0.75, 1.25)
+            logger.info(
+                "Retry %d/%d for %s after %.1fs due to %s",
+                attempt,
+                max_attempts,
+                method,
+                delay,
+                type(exc).__name__,
+            )
+            time.sleep(delay)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _get_ticker(symbol: str) -> yf.Ticker:
@@ -210,10 +266,16 @@ def _historical_earnings_from_cache(data: dict) -> list[HistoricalEarningsEvent]
 class YFinanceProvider(DataProvider):
     """Wrapper sobre yfinance.
 
-    La conversión de moneda del market cap es responsabilidad del caller.
+    La conversión de moneda del market cap es responsabilidad del caller. Los métodos
+    críticos (ohlcv/profile/financials/analyst) reintentan errores transitorios (429/401/red)
+    con backoff antes de fallar; los no-críticos degradan a [] / None sin reintentar.
     """
 
     name = "yfinance"
+
+    def __init__(self, max_attempts: int = 3, base_delay: float = 2.0):
+        self.max_attempts = max_attempts
+        self.base_delay = base_delay
 
     def get_ohlcv(self, ticker: str, start: date, end: date, interval: str = "1d") -> pd.DataFrame:
         cached = read_ohlcv_slice(ticker, interval, start, end)
@@ -221,8 +283,14 @@ class YFinanceProvider(DataProvider):
             logger.info("yfinance cache hit for %s [%s]", ticker, interval)
             return cached
 
-        tk = _get_ticker(to_yfinance(ticker))
-        df = tk.history(start=start, end=end, interval=interval, auto_adjust=False)
+        df = _with_retry(
+            lambda: _get_ticker(to_yfinance(ticker)).history(
+                start=start, end=end, interval=interval, auto_adjust=False
+            ),
+            method=f"get_ohlcv({ticker})",
+            max_attempts=self.max_attempts,
+            base_delay=self.base_delay,
+        )
         if df is None or df.empty:
             raise ProviderError(f"yfinance returned no OHLCV for {ticker}")
 
@@ -241,7 +309,15 @@ class YFinanceProvider(DataProvider):
         if cached is not None:
             return CompanyProfile(**cached)
 
-        info = _get_ticker(to_yfinance(ticker)).info or {}
+        info = (
+            _with_retry(
+                lambda: _get_ticker(to_yfinance(ticker)).info,
+                method=f"get_company_profile({ticker})",
+                max_attempts=self.max_attempts,
+                base_delay=self.base_delay,
+            )
+            or {}
+        )
         name = info.get("longName") or info.get("shortName") or ticker
         if name == ticker:
             raise ProviderError(f"yfinance returned empty info for {ticker}")
@@ -266,7 +342,7 @@ class YFinanceProvider(DataProvider):
         if cached is not None:
             return _financials_from_cache(cached)
 
-        try:
+        def _fetch():
             tk = _get_ticker(to_yfinance(ticker))
             cashflow = tk.cashflow
             fcf = _extract_row_latest(cashflow, "Free Cash Flow")
@@ -277,6 +353,15 @@ class YFinanceProvider(DataProvider):
             fiscal_year_end = _latest_column_date(cashflow)
             if fiscal_year_end is None:
                 fiscal_year_end = _latest_column_date(financials)
+            return fcf, revenue, fiscal_year_end
+
+        try:
+            fcf, revenue, fiscal_year_end = _with_retry(
+                _fetch,
+                method=f"get_financials({ticker})",
+                max_attempts=self.max_attempts,
+                base_delay=self.base_delay,
+            )
         except Exception as exc:
             logger.warning("yfinance get_financials failed for %s: %s", ticker, exc)
             raise ProviderError(f"yfinance get_financials failed for {ticker}: {exc}") from exc
@@ -371,15 +456,23 @@ class YFinanceProvider(DataProvider):
         if cached is not None:
             return _analyst_from_cache(cached)
 
-        tk = _get_ticker(to_yfinance(ticker))
-        info = tk.info or {}
+        def _fetch():
+            tk = _get_ticker(to_yfinance(ticker))
+            return (tk.info or {}), tk.recommendations
+
+        info, recommendations = _with_retry(
+            _fetch,
+            method=f"get_analyst_data({ticker})",
+            max_attempts=self.max_attempts,
+            base_delay=self.base_delay,
+        )
         price_target_mean = info.get("targetMeanPrice")
         n_analysts = info.get("numberOfAnalystOpinions")
         recommendation_mean = info.get("recommendationMean")
         if recommendation_mean is None and n_analysts is None and price_target_mean is None:
             raise ProviderError(f"yfinance returned empty analyst data for {ticker}")
 
-        counts = _recommendation_counts(tk.recommendations)
+        counts = _recommendation_counts(recommendations)
         data = AnalystData(
             ticker=ticker,
             price_target_mean=price_target_mean,

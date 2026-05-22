@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, PropertyMock
 
 import pandas as pd
 import pytest
+from yfinance.exceptions import YFRateLimitError
 
 from puts_screener.providers import cache, yfinance_provider
 from puts_screener.providers.base import ProviderError
@@ -494,3 +495,59 @@ def test_get_historical_earnings_cache_hit(tmp_cache_root, monkeypatch):
     assert events[0].date == date(2024, 2, 1)
     assert events[0].eps_surprise_pct == 9.5
     mock_get.assert_not_called()
+
+
+# --- retry de errores transitorios (_with_retry) ---
+
+
+def test_with_retry_succeeds_after_one_429(monkeypatch):
+    monkeypatch.setattr(yfinance_provider.time, "sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise YFRateLimitError()
+        return "OK"
+
+    result = yfinance_provider._with_retry(fn, method="test", max_attempts=3, base_delay=2.0)
+    assert result == "OK"
+    assert calls["n"] == 2
+
+
+def test_with_retry_propagates_after_exhausting(monkeypatch):
+    monkeypatch.setattr(yfinance_provider.time, "sleep", lambda _s: None)
+
+    def fn():
+        raise YFRateLimitError()
+
+    with pytest.raises(YFRateLimitError):
+        yfinance_provider._with_retry(fn, method="test", max_attempts=3, base_delay=2.0)
+
+
+def test_with_retry_does_not_retry_keyerror(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(yfinance_provider.time, "sleep", lambda s: sleeps.append(s))
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+        raise KeyError("Earnings Date")
+
+    with pytest.raises(KeyError):
+        yfinance_provider._with_retry(fn, method="test", max_attempts=3, base_delay=2.0)
+    assert calls["n"] == 1  # un solo intento, sin reintento
+    assert sleeps == []  # sin delays
+
+
+def test_with_retry_delay_schedule(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(yfinance_provider.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(yfinance_provider.random, "uniform", lambda _a, _b: 1.0)  # sin jitter
+
+    def fn():
+        raise YFRateLimitError()
+
+    with pytest.raises(YFRateLimitError):
+        yfinance_provider._with_retry(fn, method="test", max_attempts=3, base_delay=2.0)
+    assert sleeps == [2.0, 4.0]  # 2s tras intento 1, 4s tras intento 2; intento 3 terminal

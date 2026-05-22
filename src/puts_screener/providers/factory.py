@@ -23,7 +23,8 @@ def build_default_data_service() -> DataService:
 
     Finnhub se autodesactiva si FINNHUB_API_KEY no está seteada.
     """
-    yf = YFinanceProvider()
+    # Retry de errores transitorios (429/401/red) en métodos críticos: 3 intentos, backoff base 2s.
+    yf = YFinanceProvider(max_attempts=3, base_delay=2.0)
     fh = FinnhubProvider()
 
     return DataService(

@@ -21,11 +21,33 @@ def test_csv_created_with_expected_name(tmp_path, final_candidate_factory):
     assert path.exists()
 
 
-def test_csv_has_39_columns_in_exact_order(tmp_path, final_candidate_factory):
+def test_csv_has_40_columns_in_exact_order(tmp_path, final_candidate_factory):
     path = write_csv_report([final_candidate_factory()], output_dir=tmp_path)
     fieldnames, _ = _read_csv(path)
     assert fieldnames == list(CSV_COLUMNS)
-    assert len(fieldnames) == 39
+    assert len(fieldnames) == 40
+    assert fieldnames[39] == "universes"  # columna 40, al final
+
+
+def test_csv_universes_single(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(universes=("sp500",))
+    path = write_csv_report([fc], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    assert rows[0]["universes"] == "sp500"
+
+
+def test_csv_universes_multi_pipe_separated(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(universes=("nasdaq100", "sp500"))
+    path = write_csv_report([fc], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    assert rows[0]["universes"] == "nasdaq100|sp500"
+
+
+def test_csv_universes_empty(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(universes=())
+    path = write_csv_report([fc], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    assert rows[0]["universes"] == ""
 
 
 def test_csv_rows_sorted_by_type_score_distance(tmp_path, final_candidate_factory):

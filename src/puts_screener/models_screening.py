@@ -70,6 +70,9 @@ class ScreenedCandidate:
     pasa_filtros_paso_1: bool = False
     motivos_rechazo: list[str] = field(default_factory=list)
 
+    # Pertenencia a universos (tupla ordenada alfabéticamente, ej. ("nasdaq100", "sp500"))
+    universes: tuple[str, ...] = ()
+
     # Metadatos
     fetched_at: datetime = field(default_factory=datetime.now)
     errors: list[str] = field(default_factory=list)

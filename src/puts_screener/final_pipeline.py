@@ -68,18 +68,23 @@ def _process_binary_events(
 
 
 def run_final_pipeline(
-    universe: list[str],
+    universe: list[str] | dict[str, set[str]],
     data_service: DataService,
     persist: bool = True,
     generate_reports: bool = True,
     max_workers: int = 8,
     macro_calendar_path: Path = _DEFAULT_MACRO_CALENDAR,
+    requested_universes: list[str] | None = None,
 ) -> tuple[str | None, list[FinalCandidate]]:
     """Corre el pipeline completo Paso 1 → 2 → 3 y (opcionalmente) genera reportes y persiste."""
     macro_calendar = load_macro_calendar(macro_calendar_path)
 
     run_id, screened = run_screening(
-        universe, data_service, max_workers=max_workers, persist=persist
+        universe,
+        data_service,
+        max_workers=max_workers,
+        persist=persist,
+        requested_universes=requested_universes,
     )
     run_id, supported = run_support_detection(
         screened, data_service, max_workers=max_workers, persist=persist, run_id=run_id

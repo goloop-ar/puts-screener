@@ -222,14 +222,28 @@ def _process_ticker(ticker: str, data_service: DataService) -> ScreenedCandidate
         return None
 
 
+def _universe_tag(universe: list[str] | dict[str, set[str]], ticker: str) -> tuple[str, ...]:
+    """Tag de pertenencia (tupla ordenada) para un ticker. Vacío si el universo es una lista."""
+    if isinstance(universe, dict):
+        return tuple(sorted(universe.get(ticker, set())))
+    return ()
+
+
 def run_screening(
-    universe: list[str],
+    universe: list[str] | dict[str, set[str]],
     data_service: DataService,
     max_workers: int = 8,
     persist: bool = True,
     db_path: Path | None = None,
+    requested_universes: list[str] | None = None,
 ) -> tuple[str | None, list[ScreenedCandidate]]:
     """Corre el screening completo sobre el universo en paralelo.
+
+    Args:
+        universe: o bien una lista de tickers (sin tag de universo), o un mapping
+            ticker → set de universos. Con el mapping se propaga el tag a cada candidato.
+        requested_universes: lista de universos solicitados al CLI; se persiste en
+            `runs.universes_json` (no se deriva del mapping).
 
     Returns:
         (run_id, candidates). run_id es None si persist=False. `candidates` incluye
@@ -257,6 +271,7 @@ def run_screening(
             if candidate is None:
                 failed_count += 1
                 continue
+            candidate.universes = _universe_tag(universe, ticker)
             candidates.append(candidate)
             if i % _PROGRESS_EVERY == 0:
                 logger.info("Progress: %d / %d processed", i, len(universe))
@@ -278,7 +293,11 @@ def run_screening(
     run_id: str | None = None
     if persist:
         run_id = save_run(
-            candidates, universe_size=len(universe), started_at=started_at, db_path=db_path
+            candidates,
+            universe_size=len(universe),
+            started_at=started_at,
+            db_path=db_path,
+            requested_universes=requested_universes,
         )
         logger.info("  Run id: %s", run_id)
 

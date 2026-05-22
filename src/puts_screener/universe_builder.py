@@ -21,8 +21,12 @@ from puts_screener.providers.tickers import SUPPORTED_EU_SUFFIXES
 logger = logging.getLogger(__name__)
 
 _SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+_NASDAQ100_URL = "https://en.wikipedia.org/wiki/Nasdaq-100"
 _STOXX600_URL = "https://en.wikipedia.org/wiki/STOXX_Europe_600"
-_SOURCE_URLS = {"sp500": _SP500_URL, "stoxx600": _STOXX600_URL}
+_SOURCE_URLS = {"sp500": _SP500_URL, "nasdaq100": _NASDAQ100_URL, "stoxx600": _STOXX600_URL}
+
+# Universos soportados por `build_universe` (orden = orden de aplicación de los fetchers).
+SUPPORTED_UNIVERSES: tuple[str, ...] = ("sp500", "nasdaq100", "stoxx600")
 
 _CACHE_DIR = Path("data/cache/universe")
 _CACHE_TTL_SECONDS = 7 * 24 * 3600
@@ -73,24 +77,66 @@ _STOXX_COUNTRY_TO_SUFFIX: dict[str, str] = {
 }
 
 
-def build_universe(refresh: bool = False) -> list[str]:
-    """Combina S&P 500 + Stoxx 600 con cache de 7 días.
+def build_universe(universes: list[str], refresh: bool = False) -> dict[str, set[str]]:
+    """Construye el universo combinando los universos pedidos, con dedup y tag de pertenencia.
 
     Args:
+        universes: lista de universos a combinar. Cada uno debe estar en SUPPORTED_UNIVERSES.
         refresh: si True, ignora cache y refetchea.
 
     Returns:
-        Lista deduplicada y ordenada de tickers en formato canónico (yfinance).
+        Mapping ticker (formato yfinance) → set de universos a los que pertenece. Ordenado
+        alfabéticamente por ticker. Un ticker presente en varios universos aparece una sola
+        vez con todos sus tags (dedup natural por dict).
+
+    Raises:
+        ValueError: si `universes` está vacía o contiene un universo no soportado.
     """
-    sp500 = _fetch_with_cache("sp500", _fetch_sp500, refresh)
-    stoxx = _fetch_with_cache("stoxx600", _fetch_stoxx600, refresh)
-    return sorted(set(sp500) | set(stoxx))
+    if not universes:
+        raise ValueError(
+            f"build_universe requiere al menos un universo. Soportados: "
+            f"{', '.join(SUPPORTED_UNIVERSES)}"
+        )
+    unknown = [u for u in universes if u not in SUPPORTED_UNIVERSES]
+    if unknown:
+        raise ValueError(
+            f"Universo(s) no soportado(s): {', '.join(unknown)}. "
+            f"Soportados: {', '.join(SUPPORTED_UNIVERSES)}"
+        )
+
+    mapping: dict[str, set[str]] = {}
+    for name in universes:
+        tickers = _fetch_with_cache(name, _fetcher_for(name), refresh)
+        for ticker in tickers:
+            mapping.setdefault(ticker, set()).add(name)
+    return {ticker: mapping[ticker] for ticker in sorted(mapping)}
+
+
+def _fetcher_for(name: str) -> Callable[[], list[str]]:
+    """Resuelve el fetcher de un universo en runtime (respeta monkeypatch en tests)."""
+    return {
+        "sp500": _fetch_sp500,
+        "nasdaq100": _fetch_nasdaq100,
+        "stoxx600": _fetch_stoxx600,
+    }[name]
 
 
 def _fetch_sp500() -> list[str]:
     """S&P 500: primera tabla con columna 'Symbol'. `.` → `-` (canónico yfinance)."""
     html = _http_get(_SP500_URL)
     raw = _parse_table_column(html, ("Symbol",))
+    return [s.strip().upper().replace(".", "-") for s in raw if s.strip()]
+
+
+def _fetch_nasdaq100() -> list[str]:
+    """Nasdaq-100: tabla 'Components' (columna 'Ticker'/'Symbol'). Todos US, sin sufijo.
+
+    Identifica la tabla por su columna de tickers vía `_parse_table_column` (igual que S&P 500),
+    sin depender de un id de tabla estable. `.` → `-` para alinear con el formato canónico
+    yfinance (defensivo: Nasdaq-100 rara vez trae puntos).
+    """
+    html = _http_get(_NASDAQ100_URL)
+    raw = _parse_table_column(html, ("Ticker", "Symbol"))
     return [s.strip().upper().replace(".", "-") for s in raw if s.strip()]
 
 

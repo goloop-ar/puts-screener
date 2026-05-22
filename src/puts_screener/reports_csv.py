@@ -1,6 +1,7 @@
 """Generación del CSV detallado por corrida (§7 de spec 04).
 
-Una fila por candidato que pasó Paso 1 + Paso 2. 39 columnas en el orden exacto de §7.1.
+Una fila por candidato que pasó Paso 1 + Paso 2. 40 columnas en el orden exacto de §7.1
+(la 40, `universes`, se agregó AL FINAL en Etapa 1 para no romper el orden previo).
 Los helpers de label de elemento y de ordenamiento se comparten con `reports_html`.
 """
 
@@ -75,6 +76,7 @@ CSV_COLUMNS: tuple[str, ...] = (
     "tiene_eventos_binarios",
     "flags_legibles",
     "fetched_at",
+    "universes",
 )
 
 
@@ -151,6 +153,7 @@ def _build_row(fc: FinalCandidate) -> dict:
         "tiene_eventos_binarios": be.tiene_eventos_binarios,
         "flags_legibles": " | ".join(be.flags_legibles),
         "fetched_at": _iso_or_none(fc.fetched_at),
+        "universes": "|".join(screened.universes),
     }
     # None → "" (no "None"), explícito para no depender del comportamiento del módulo csv.
     return {key: ("" if value is None else value) for key, value in row.items()}

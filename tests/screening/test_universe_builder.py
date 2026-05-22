@@ -84,18 +84,46 @@ def test_fetch_stoxx600_parses_sample():
     ]
 
 
-def test_build_universe_combines_and_deduplicates(tmp_universe_cache, monkeypatch):
+@responses.activate
+def test_fetch_nasdaq100_from_fixture():
+    html = (FIXTURES / "wikipedia_nasdaq100_sample.html").read_text(encoding="utf-8")
+    responses.add(responses.GET, universe_builder._NASDAQ100_URL, body=html, status=200)
+    # Tabla "Components" identificada por la columna "Ticker"; la infobox previa se ignora.
+    assert universe_builder._fetch_nasdaq100() == ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"]
+
+
+def test_build_universe_single(tmp_universe_cache, monkeypatch):
     monkeypatch.setattr(universe_builder, "_fetch_sp500", lambda: ["AAPL", "MSFT"])
-    monkeypatch.setattr(universe_builder, "_fetch_stoxx600", lambda: ["ASML.AS", "MSFT"])
-    assert universe_builder.build_universe() == ["AAPL", "ASML.AS", "MSFT"]
+    result = universe_builder.build_universe(["sp500"])
+    assert result == {"AAPL": {"sp500"}, "MSFT": {"sp500"}}
+
+
+def test_build_universe_dedup_tagging(tmp_universe_cache, monkeypatch):
+    monkeypatch.setattr(universe_builder, "_fetch_sp500", lambda: ["AAPL", "JPM"])
+    monkeypatch.setattr(universe_builder, "_fetch_nasdaq100", lambda: ["AAPL", "AMZN"])
+    result = universe_builder.build_universe(["sp500", "nasdaq100"])
+    assert result["AAPL"] == {"sp500", "nasdaq100"}
+    assert result["JPM"] == {"sp500"}
+    assert result["AMZN"] == {"nasdaq100"}
+    assert list(result) == ["AAPL", "AMZN", "JPM"]  # ordenado alfabéticamente
+
+
+def test_build_universe_invalid_universe(tmp_universe_cache):
+    with pytest.raises(ValueError, match="no soportado"):
+        universe_builder.build_universe(["sp500", "foo"])
+
+
+def test_build_universe_empty_list(tmp_universe_cache):
+    with pytest.raises(ValueError, match="al menos un universo"):
+        universe_builder.build_universe([])
 
 
 @responses.activate
 def test_build_universe_uses_cache(tmp_universe_cache):
     universe_builder._write_universe_cache("sp500", ["AAPL"], universe_builder._SP500_URL)
     universe_builder._write_universe_cache("stoxx600", ["ASML.AS"], universe_builder._STOXX600_URL)
-    result = universe_builder.build_universe()
-    assert result == ["AAPL", "ASML.AS"]
+    result = universe_builder.build_universe(["sp500", "stoxx600"])
+    assert result == {"AAPL": {"sp500"}, "ASML.AS": {"stoxx600"}}
     assert len(responses.calls) == 0
 
 
@@ -106,7 +134,8 @@ def test_build_universe_refresh_ignores_cache(tmp_universe_cache, monkeypatch):
     )
     monkeypatch.setattr(universe_builder, "_fetch_sp500", lambda: ["AAPL"])
     monkeypatch.setattr(universe_builder, "_fetch_stoxx600", lambda: ["ASML.AS"])
-    assert universe_builder.build_universe(refresh=True) == ["AAPL", "ASML.AS"]
+    result = universe_builder.build_universe(["sp500", "stoxx600"], refresh=True)
+    assert result == {"AAPL": {"sp500"}, "ASML.AS": {"stoxx600"}}
 
 
 def test_cache_disabled_env(tmp_universe_cache, monkeypatch):

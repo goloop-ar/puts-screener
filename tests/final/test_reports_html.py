@@ -66,6 +66,26 @@ def test_html_truncates_elements_over_8(tmp_path, final_candidate_factory):
     assert "+2 más" in card.get_text()
 
 
+def test_html_universe_badges_single(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(ticker="ONE", universes=("sp500",))
+    path = write_html_report([fc], _META, output_dir=tmp_path)
+    soup = _soup(path)
+    card = soup.find("article", class_="card")
+    badges = card.find_all("span", class_="universe-badge")
+    assert len(badges) == 1
+    assert badges[0].get_text(strip=True) == "sp500"
+
+
+def test_html_universe_badges_multiple(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(ticker="TWO", universes=("nasdaq100", "sp500"))
+    path = write_html_report([fc], _META, output_dir=tmp_path)
+    soup = _soup(path)
+    card = soup.find("article", class_="card")
+    badges = card.find_all("span", class_="universe-badge")
+    assert len(badges) == 2
+    assert {b.get_text(strip=True) for b in badges} == {"nasdaq100", "sp500"}
+
+
 def test_html_latest_copy_created(tmp_path, final_candidate_factory):
     path = write_html_report([final_candidate_factory()], _META, output_dir=tmp_path)
     latest = tmp_path / "screening_latest.html"

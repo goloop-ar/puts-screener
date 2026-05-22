@@ -41,6 +41,7 @@ def _format_candidate(fc: FinalCandidate) -> dict:
 
     return {
         "ticker": fc.ticker,
+        "universes": list(screened.universes),
         "sector": screened.profile.sector or "",
         "exchange": screened.profile.exchange or "",
         "tipo_T": tipo,

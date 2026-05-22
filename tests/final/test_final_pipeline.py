@@ -25,7 +25,9 @@ def _wire_pipeline(monkeypatch, supported, *, persist_run_id="rid", boom_ticker=
     screened = [s.screened for s in supported]
     calls = calls if calls is not None else []
 
-    def fake_screening(universe, data_service, max_workers=8, persist=True, db_path=None):
+    def fake_screening(
+        universe, data_service, max_workers=8, persist=True, db_path=None, requested_universes=None
+    ):
         calls.append("screening")
         return (persist_run_id if persist else None, screened)
 

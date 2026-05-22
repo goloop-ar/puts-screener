@@ -59,6 +59,7 @@ def _build_test_final_candidate(
     ex_div_date=None,
     ex_div_amount=None,
     fetched_at=None,
+    universes=(),
 ) -> FinalCandidate:
     """Construye un FinalCandidate completo con defaults razonables; overridear lo necesario."""
     elements = _DEFAULT_ELEMENTS if elements is None else elements
@@ -115,6 +116,7 @@ def _build_test_final_candidate(
         price_target_upside_pct=0.10,
         recommendation_buy_ratio=0.75,
         downgrades_6w_count=0,
+        universes=tuple(universes),
     )
 
     support_levels = [

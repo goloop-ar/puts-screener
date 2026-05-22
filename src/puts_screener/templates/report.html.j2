@@ -30,6 +30,11 @@
     }
     .ticker { font-size: 1.2rem; }
     .sector, .exchange { color: var(--muted); font-size: 0.82rem; }
+    .universe-badges { display: inline-flex; gap: 0.25rem; flex-wrap: wrap; }
+    .universe-badge {
+      background: #e2e5ea; color: #44505f; padding: 0.1rem 0.4rem;
+      border-radius: 4px; font-size: 0.7rem; font-weight: 600;
+    }
     .badge {
       margin-left: auto; padding: 0.15rem 0.55rem; border-radius: 999px;
       font-size: 0.78rem; font-weight: 600; color: #ffffff;
@@ -75,6 +80,13 @@
     <article class="card {{ c.tipo_T_lower }}">
       <header class="card-head">
         <strong class="ticker">{{ c.ticker }}</strong>
+        {% if c.universes %}
+        <span class="universe-badges">
+          {% for u in c.universes %}
+          <span class="universe-badge">{{ u }}</span>
+          {% endfor %}
+        </span>
+        {% endif %}
         <span class="sector">{{ c.sector }}</span>
         <span class="exchange">{{ c.exchange }}</span>
         <span class="badge type-{{ c.tipo_T_lower }}">{{ c.tipo_T }}</span>

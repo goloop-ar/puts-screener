@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS runs (
     finished_at TEXT,
     universe_size INTEGER NOT NULL,
     candidates_passed INTEGER,
-    status TEXT NOT NULL
+    status TEXT NOT NULL,
+    universes_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS candidates (
@@ -134,6 +135,7 @@ _CANDIDATE_COLUMNS = (
     "fetched_at",
     "motivos_rechazo",
     "errors",
+    "universes_json",
 )
 _INSERT_CANDIDATE_SQL = (
     f"INSERT INTO candidates ({', '.join(_CANDIDATE_COLUMNS)}) "
@@ -182,15 +184,26 @@ _CANDIDATE_MIGRATION_COLUMNS: dict[str, str] = {
     "eventos_macro_json": "TEXT",
     "tiene_eventos_binarios": "INTEGER",
     "flags_legibles_json": "TEXT",
+    "universes_json": "TEXT",  # Etapa 1 — pertenencia a universos (JSON: lista ordenada)
+}
+
+# Columnas agregadas a `runs` por specs posteriores. Misma migración idempotente que candidates.
+_RUNS_MIGRATION_COLUMNS: dict[str, str] = {
+    "universes_json": "TEXT",  # Etapa 1 — universos solicitados al CLI (JSON: lista)
 }
 
 
-def _migrate_candidate_columns(conn: sqlite3.Connection) -> None:
-    """Agrega las columnas faltantes a `candidates` (un PRAGMA, ALTER solo de las que falten)."""
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(candidates)").fetchall()}
-    for column, sql_type in _CANDIDATE_MIGRATION_COLUMNS.items():
+def _migrate_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+    """Agrega las columnas faltantes a `table` (un PRAGMA, ALTER solo de las que falten)."""
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for column, sql_type in columns.items():
         if column not in existing:
-            conn.execute(f"ALTER TABLE candidates ADD COLUMN {column} {sql_type}")
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+
+
+def _migrate_candidate_columns(conn: sqlite3.Connection) -> None:
+    """Agrega las columnas faltantes a `candidates`."""
+    _migrate_columns(conn, "candidates", _CANDIDATE_MIGRATION_COLUMNS)
 
 
 @contextmanager
@@ -203,6 +216,7 @@ def _connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     try:
         conn.executescript(_SCHEMA_SQL)
         _migrate_candidate_columns(conn)
+        _migrate_columns(conn, "runs", _RUNS_MIGRATION_COLUMNS)
         yield conn
         conn.commit()
     except Exception:
@@ -240,6 +254,7 @@ def _candidate_row(run_id: str, c: ScreenedCandidate) -> tuple:
         c.fetched_at.isoformat(),
         json.dumps(c.motivos_rechazo),
         json.dumps(c.errors),
+        json.dumps(sorted(c.universes)),
     )
 
 
@@ -248,16 +263,23 @@ def save_run(
     universe_size: int,
     started_at: datetime,
     db_path: Path | None = None,
+    requested_universes: list[str] | None = None,
 ) -> str:
-    """Persiste una corrida completa y devuelve el run_id (UUID)."""
+    """Persiste una corrida completa y devuelve el run_id (UUID).
+
+    `requested_universes` es la lista de universos pedidos al CLI (no derivada de los tickers);
+    se guarda en `runs.universes_json`.
+    """
     run_id = str(uuid.uuid4())
     passed = sum(1 for c in candidates if c.pasa_filtros_paso_1)
+    universes_json = json.dumps(requested_universes) if requested_universes else None
 
     with _connect(db_path) as conn:
         conn.execute(
             "INSERT INTO runs "
-            "(run_id, started_at, finished_at, universe_size, candidates_passed, status) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(run_id, started_at, finished_at, universe_size, candidates_passed, status, "
+            "universes_json) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 run_id,
                 started_at.isoformat(),
@@ -265,6 +287,7 @@ def save_run(
                 universe_size,
                 passed,
                 "completed",
+                universes_json,
             ),
         )
         for candidate in candidates:
@@ -303,6 +326,7 @@ def get_run_candidates(
         d = dict(row)
         d["motivos_rechazo"] = json.loads(d["motivos_rechazo"]) if d["motivos_rechazo"] else []
         d["errors"] = json.loads(d["errors"]) if d["errors"] else []
+        d["universes"] = json.loads(d["universes_json"]) if d.get("universes_json") else []
         d["pasa_filtros_paso_1"] = bool(d["pasa_filtros_paso_1"])
         result.append(d)
     return result

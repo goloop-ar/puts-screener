@@ -20,6 +20,7 @@ def _candidate(
     tipo="T1",
     motivos=None,
     errors=None,
+    universes=(),
 ):
     return ScreenedCandidate(
         ticker=ticker,
@@ -59,6 +60,7 @@ def _candidate(
         pasa_filtros_paso_1=passes,
         motivos_rechazo=motivos if motivos is not None else [],
         errors=errors if errors is not None else [],
+        universes=tuple(universes),
     )
 
 
@@ -143,3 +145,48 @@ def test_env_var_overrides_db_path(tmp_path, monkeypatch):
     monkeypatch.setenv("PUTS_SCREENER_DB_PATH", str(custom))
     save_run([_candidate()], universe_size=1, started_at=datetime.now())
     assert custom.exists()
+
+
+def test_candidate_universes_round_trip(tmp_path):
+    db = tmp_path / "test.db"
+    c = _candidate(ticker="AAPL", universes=("sp500", "nasdaq100"))
+    run_id = save_run([c], universe_size=1, started_at=datetime.now(), db_path=db)
+
+    # Raw: persistido como JSON con lista ordenada alfabéticamente.
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    raw = conn.execute(
+        "SELECT universes_json FROM candidates WHERE run_id=?", (run_id,)
+    ).fetchone()["universes_json"]
+    conn.close()
+    assert raw == '["nasdaq100", "sp500"]'
+
+    # load: get_run_candidates decodifica a lista.
+    loaded = get_run_candidates(run_id, db_path=db)[0]
+    assert loaded["universes"] == ["nasdaq100", "sp500"]
+
+
+def test_runs_universes_json_persisted(tmp_path):
+    db = tmp_path / "test.db"
+    run_id = save_run(
+        [_candidate()],
+        universe_size=1,
+        started_at=datetime.now(),
+        db_path=db,
+        requested_universes=["sp500", "nasdaq100"],
+    )
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT universes_json FROM runs WHERE run_id=?", (run_id,)).fetchone()
+    conn.close()
+    assert row["universes_json"] == '["sp500", "nasdaq100"]'
+
+
+def test_migration_idempotent(tmp_path):
+    """Correr save_run dos veces sobre el mismo DB no rompe (migración idempotente)."""
+    db = tmp_path / "test.db"
+    save_run([_candidate("AAA")], universe_size=1, started_at=datetime.now(), db_path=db)
+    # Segunda corrida reusa el schema ya migrado sin error de columna duplicada.
+    run_id = save_run([_candidate("BBB")], universe_size=1, started_at=datetime.now(), db_path=db)
+    assert len(list_runs(db_path=db)) == 2
+    assert run_id is not None

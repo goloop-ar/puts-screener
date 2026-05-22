@@ -49,14 +49,14 @@ def test_sma_200_levels_constant_series():
     """210 semanas y 250 días constantes a 100 → SMA200W=100, EMA200D=100, 2 pts c/u."""
     weekly = _daily([100.0] * 210)
     daily = _daily([100.0] * 250)
-    levels = sma_200_levels(daily, weekly)
+    levels = sma_200_levels(daily, weekly, spot=100.0)
 
     by_element = {lvl.element: lvl for lvl in levels}
-    assert set(by_element) == {"sma_200w", "sma_200d"}
+    assert set(by_element) == {"sma_200w", "ema_200d"}
     assert by_element["sma_200w"].price == pytest.approx(100.0)
-    assert by_element["sma_200d"].price == pytest.approx(100.0)
+    assert by_element["ema_200d"].price == pytest.approx(100.0)
     assert by_element["sma_200w"].points == 2
-    assert by_element["sma_200d"].points == 2
+    assert by_element["ema_200d"].points == 2
 
 
 def test_sma_200_levels_ema_cross_check():
@@ -67,16 +67,27 @@ def test_sma_200_levels_ema_cross_check():
     daily = _daily(daily_closes)
     weekly = _daily(weekly_closes)
 
-    levels = {lvl.element: lvl.price for lvl in sma_200_levels(daily, weekly)}
+    levels = {lvl.element: lvl.price for lvl in sma_200_levels(daily, weekly, spot=100.0)}
     expected_ema = pd.Series(daily_closes).ewm(span=200, adjust=False).mean().iloc[-1]
     expected_sma = pd.Series(weekly_closes).rolling(200).mean().iloc[-1]
-    assert levels["sma_200d"] == pytest.approx(expected_ema)
+    assert levels["ema_200d"] == pytest.approx(expected_ema)
     assert levels["sma_200w"] == pytest.approx(expected_sma)
 
 
 def test_sma_200_levels_insufficient_data():
     """Menos de 200 semanas/días → sin niveles, sin excepción."""
-    assert sma_200_levels(_daily([100.0] * 50), _daily([100.0] * 50)) == []
+    assert sma_200_levels(_daily([100.0] * 50), _daily([100.0] * 50), spot=100.0) == []
+
+
+def test_sma_200_levels_side_derivation():
+    """SMA200W=95 (debajo del spot) → support; EMA200D=105 (encima) → resistance."""
+    weekly = _daily([95.0] * 210)
+    daily = _daily([105.0] * 250)
+    by_element = {lvl.element: lvl for lvl in sma_200_levels(daily, weekly, spot=100.0)}
+    assert by_element["sma_200w"].price == pytest.approx(95.0)
+    assert by_element["sma_200w"].side == "support"
+    assert by_element["ema_200d"].price == pytest.approx(105.0)
+    assert by_element["ema_200d"].side == "resistance"
 
 
 # --- Polaridad (§5.2) ---
@@ -181,7 +192,7 @@ def test_avwap_levels_pivot_low_anchor():
     daily = _daily(closes, volumes=volumes)
     pivot = _pivot(daily.index[0], 10.0, "low")
 
-    levels = avwap_levels(daily, [pivot], last_earnings_date=None)
+    levels = avwap_levels(daily, [pivot], last_earnings_date=None, spot=100.0)
     by_element = {lvl.element: lvl.price for lvl in levels}
     # AVWAP = (10*400 + 20*100 + 30*100 + 40*100 + 50*100) / 800 = 18000 / 800 = 22.5
     assert by_element["avwap_pivot_low"] == pytest.approx(22.5)
@@ -196,7 +207,10 @@ def test_avwap_levels_earnings_out_of_window_omitted():
     pivot = _pivot(daily.index[0], 10.0, "low")
     old_earnings = daily.index[-1] - pd.Timedelta(days=400)
 
-    levels = {lvl.element for lvl in avwap_levels(daily, [pivot], last_earnings_date=old_earnings)}
+    levels = {
+        lvl.element
+        for lvl in avwap_levels(daily, [pivot], last_earnings_date=old_earnings, spot=100.0)
+    }
     assert "avwap_earnings" not in levels
     assert "avwap_pivot_low" in levels
 
@@ -207,7 +221,9 @@ def test_avwap_levels_earnings_in_window_included():
     daily = _daily(closes)
     earnings = daily.index[1]  # reciente, dentro de ventana
 
-    levels = {lvl.element for lvl in avwap_levels(daily, [], last_earnings_date=earnings)}
+    levels = {
+        lvl.element for lvl in avwap_levels(daily, [], last_earnings_date=earnings, spot=100.0)
+    }
     assert "avwap_earnings" in levels
 
 
@@ -227,7 +243,7 @@ def test_hvn_levels_detects_volume_node():
     volumes[spike_idx] = 200_000_000.0
     daily = _daily(closes, volumes=volumes)
 
-    levels = hvn_levels(daily)
+    levels = hvn_levels(daily, spot=130.0)
     assert levels  # no vacío
     assert all(lvl.element == "hvn" and lvl.points == 1 for lvl in levels)
     assert min(abs(lvl.price - 100.0) for lvl in levels) < 2.0
@@ -242,7 +258,7 @@ def test_hvn_levels_contiguous_buckets_merge_into_one():
     closes[1] = 100.5  # fija price_max
     daily = _daily(closes)
 
-    levels = hvn_levels(daily)
+    levels = hvn_levels(daily, spot=130.0)
     assert len(levels) == 1
     assert levels[0].price == pytest.approx(100.0, abs=0.1)
 
@@ -255,7 +271,7 @@ def test_hvn_levels_metadata_includes_bucket_range():
     closes[1] = 100.5  # fija price_max
     daily = _daily(closes)
 
-    levels = hvn_levels(daily)
+    levels = hvn_levels(daily, spot=130.0)
     assert len(levels) == 1
     md = levels[0].metadata
     expected_width = (100.5 - 99.5) / 50  # (max_52w - min_52w) / HVN_NUM_BUCKETS
@@ -267,7 +283,7 @@ def test_hvn_levels_metadata_includes_bucket_range():
 
 def test_hvn_levels_insufficient_data():
     """Menos de 252 días → []."""
-    assert hvn_levels(_daily([100.0] * 100)) == []
+    assert hvn_levels(_daily([100.0] * 100), spot=130.0) == []
 
 
 # --- Gaps (§5.6) ---
@@ -280,7 +296,7 @@ def test_gap_levels_unfilled_gap_detected():
     closes = [100.0, 100.0, 99.0, 111.0, 112.0, 113.0]
     daily = _daily(closes, highs=highs, lows=lows)
 
-    levels = gap_levels(daily)
+    levels = gap_levels(daily, spot=130.0)
     assert len(levels) == 1
     assert levels[0].price == pytest.approx(105.0)  # (100 + 110) / 2
     assert levels[0].element == "gap_unfilled"
@@ -293,7 +309,7 @@ def test_gap_levels_filled_gap_not_detected():
     closes = [100.0, 99.0, 111.0, 112.0, 100.0, 99.0]
     daily = _daily(closes, highs=highs, lows=lows)
 
-    assert gap_levels(daily) == []
+    assert gap_levels(daily, spot=130.0) == []
 
 
 # --- Divergencia (§5.7) ---
@@ -367,14 +383,14 @@ def test_metadata_dates_are_date_only():
         highs=[101.0, 101.0, 100.0, 112.0, 113.0, 114.0],
         lows=[99.0, 99.0, 98.0, 110.0, 111.0, 112.0],
     )
-    gaps = gap_levels(gap_daily)
+    gaps = gap_levels(gap_daily, spot=130.0)
     assert gaps
     for lvl in gaps:
         assert _DATE_RE.match(lvl.metadata["gap_date"]), lvl.metadata["gap_date"]
 
     av_daily = _daily([10.0, 20.0, 30.0, 40.0, 50.0])
     av_pivot = _pivot(av_daily.index[0], 10.0, "low")
-    avwaps = avwap_levels(av_daily, [av_pivot], last_earnings_date=None)
+    avwaps = avwap_levels(av_daily, [av_pivot], last_earnings_date=None, spot=100.0)
     assert avwaps
     for lvl in avwaps:
         assert _DATE_RE.match(lvl.metadata["anchor_date"]), lvl.metadata["anchor_date"]

@@ -7,8 +7,8 @@ ATR = 1.0  # tolerancia de cluster = 0.5×ATR = 0.5; ancho de zona = ±0.5
 SPOT = 120.0
 
 
-def _level(price, element, points=1):
-    return SupportLevel(price=price, element=element, points=points)
+def _level(price, element, points=1, side="support"):
+    return SupportLevel(price=price, element=element, points=points, side=side)
 
 
 # --- separación de clusters ---
@@ -33,7 +33,7 @@ def test_close_levels_form_single_zone():
 
 
 def test_dedup_sma200_counts_two_not_four():
-    levels = [_level(100.0, "sma_200w", points=2), _level(100.2, "sma_200d", points=2)]
+    levels = [_level(100.0, "sma_200w", points=2), _level(100.2, "ema_200d", points=2)]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
     assert zones[0].score == 2  # categoría sma_200 una sola vez (no 4)
@@ -72,17 +72,31 @@ def test_mixed_confluence_scores_five():
     assert zones[0].has_dynamic_confirmer is True
 
 
-# --- filtro de spot ---
+# --- filtro por side (support vs resistance) ---
 
 
-def test_levels_above_spot_margin_ignored():
-    """Elemento con price > spot×1.02 se descarta antes de clusterizar."""
-    levels = [_level(95.0, "hvn"), _level(103.0, "polarity")]  # spot=100 → 102 es el techo
+def test_resistance_side_levels_excluded():
+    """Un nivel con side='resistance' (precio ≥ spot) se descarta antes de clusterizar."""
+    levels = [_level(95.0, "hvn"), _level(103.0, "polarity", side="resistance")]
     zones = cluster_into_zones(levels, ATR, spot=100.0)
     assert len(zones) == 1
     assert zones[0].center_price == 95.0
     all_elements = [e.element for z in zones for e in z.elements]
     assert "polarity" not in all_elements
+
+
+def test_only_support_side_levels_clustered():
+    """De una mezcla mitad support / mitad resistance, solo los support entran al cluster."""
+    levels = [
+        _level(95.0, "hvn", side="support"),
+        _level(96.0, "fib_618", side="support"),
+        _level(105.0, "polarity", side="resistance"),
+        _level(106.0, "gap_unfilled", side="resistance"),
+    ]
+    zones = cluster_into_zones(levels, ATR, spot=100.0)
+    clustered = {e.element for z in zones for e in z.elements}
+    assert clustered == {"hvn", "fib_618"}
+    assert all(e.side == "support" for z in zones for e in z.elements)
 
 
 # --- ordenamiento ---
@@ -121,9 +135,9 @@ def test_zones_same_score_sorted_by_distance():
 def test_compute_zone_score_dedup_across_categories():
     elements = [
         _level(100.0, "sma_200w", points=2),
-        _level(100.0, "sma_200d", points=2),  # misma categoría → no duplica
+        _level(100.0, "ema_200d", points=2),  # misma categoría → no duplica
         _level(100.0, "fib_618"),
         _level(100.0, "fib_786"),  # misma categoría → no duplica
         _level(100.0, "divergence"),
     ]
-    assert compute_zone_score(elements) == 2 + 1 + 1  # sma_200 + fibonacci + divergence
+    assert compute_zone_score(elements) == 2 + 1 + 1  # sma_200 (sma_200w+ema_200d) + fib + diverg.

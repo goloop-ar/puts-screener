@@ -17,7 +17,7 @@ from puts_screener.models_support import (
 from puts_screener.providers.models import AnalystData, CompanyProfile, FinancialSnapshot
 
 _DEFAULT_ELEMENTS = [
-    ("sma_200d", 99.0, 2),
+    ("ema_200d", 99.0, 2),
     ("avwap_earnings", 98.6, 1),
     ("fib_618", 98.2, 1),
     ("hvn", 97.8, 1),

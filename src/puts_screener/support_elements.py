@@ -13,6 +13,8 @@ Decisiones de implementación (no explícitas en la spec):
   (Tanda 3) pueda serializarlas a JSON sin conversión adicional.
 """
 
+from typing import Literal
+
 import numpy as np
 import pandas as pd
 
@@ -37,6 +39,11 @@ _SMA_WEEKS = 200
 _EMA_DAYS = 200
 
 
+def _side_for(price: float, spot: float) -> Literal["support", "resistance"]:
+    """Soporte si el nivel está por debajo del spot; resistencia si está al spot o por encima."""
+    return "support" if price < spot else "resistance"
+
+
 def _date_cutoff(ohlcv_daily: pd.DataFrame, business_days: int) -> pd.Timestamp:
     """Fecha de corte = índice[-business_days] del OHLCV (N ruedas hábiles atrás).
 
@@ -56,23 +63,40 @@ def _last_low_pivot_in_window(pivots: list[Pivot], ohlcv_daily: pd.DataFrame) ->
     return max(lows, key=lambda p: p.date)
 
 
-def sma_200_levels(ohlcv_daily: pd.DataFrame, ohlcv_weekly: pd.DataFrame) -> list[SupportLevel]:
-    """SMA200 semanal y EMA200 diaria como niveles de soporte (2 pts cada uno).
+def sma_200_levels(
+    ohlcv_daily: pd.DataFrame, ohlcv_weekly: pd.DataFrame, spot: float
+) -> list[SupportLevel]:
+    """SMA200 semanal y EMA200 diaria como niveles (2 pts cada uno).
 
     El SOP asigna 2 puntos si UNO de los dos coincide con la zona; el dedup por categoría
-    del clustering (§6.3) evita duplicar puntos si ambos caen en la misma zona.
+    del clustering (§6.3) evita duplicar puntos si ambos caen en la misma zona. El label del
+    nivel diario es `ema_200d` — es una EMA (`ewm(span=200)`), no una SMA.
     """
     levels: list[SupportLevel] = []
 
     weekly_close = ohlcv_weekly["Close"]
     if len(weekly_close) >= _SMA_WEEKS:
         sma_200w = float(weekly_close.rolling(_SMA_WEEKS).mean().iloc[-1])
-        levels.append(SupportLevel(price=sma_200w, element="sma_200w", points=SCORE_SMA200_POINTS))
+        levels.append(
+            SupportLevel(
+                price=sma_200w,
+                element="sma_200w",
+                points=SCORE_SMA200_POINTS,
+                side=_side_for(sma_200w, spot),
+            )
+        )
 
     daily_close = ohlcv_daily["Close"]
     if len(daily_close) >= _EMA_DAYS:
         ema_200d = float(daily_close.ewm(span=_EMA_DAYS, adjust=False).mean().iloc[-1])
-        levels.append(SupportLevel(price=ema_200d, element="sma_200d", points=SCORE_SMA200_POINTS))
+        levels.append(
+            SupportLevel(
+                price=ema_200d,
+                element="ema_200d",
+                points=SCORE_SMA200_POINTS,
+                side=_side_for(ema_200d, spot),
+            )
+        )
 
     return levels
 
@@ -91,6 +115,7 @@ def polarity_levels(
                     element="polarity",
                     points=SCORE_OTHER_ELEMENT_POINTS,
                     metadata={"pivot_date": pivot.date.date().isoformat()},
+                    side=_side_for(pivot.price, close_today),
                 )
             )
     return levels
@@ -135,10 +160,18 @@ def fib_levels(
     fib_786 = high_price - FIB_LEVELS[1] * swing_range
     return [
         SupportLevel(
-            price=fib_618, element="fib_618", points=SCORE_OTHER_ELEMENT_POINTS, metadata=metadata
+            price=fib_618,
+            element="fib_618",
+            points=SCORE_OTHER_ELEMENT_POINTS,
+            metadata=metadata,
+            side=_side_for(fib_618, close_today),
         ),
         SupportLevel(
-            price=fib_786, element="fib_786", points=SCORE_OTHER_ELEMENT_POINTS, metadata=metadata
+            price=fib_786,
+            element="fib_786",
+            points=SCORE_OTHER_ELEMENT_POINTS,
+            metadata=metadata,
+            side=_side_for(fib_786, close_today),
         ),
     ]
 
@@ -160,6 +193,7 @@ def avwap_levels(
     ohlcv_daily: pd.DataFrame,
     pivots: list[Pivot],
     last_earnings_date: pd.Timestamp | None,
+    spot: float,
 ) -> list[SupportLevel]:
     """Hasta 3 AVWAPs: desde último pivot bajo, último earnings y máximo de 52w (1 pt c/u).
 
@@ -178,6 +212,7 @@ def avwap_levels(
                     element="avwap_pivot_low",
                     points=SCORE_OTHER_ELEMENT_POINTS,
                     metadata={"anchor_date": pivot_low_last.date.date().isoformat()},
+                    side=_side_for(value, spot),
                 )
             )
 
@@ -192,6 +227,7 @@ def avwap_levels(
                         element="avwap_earnings",
                         points=SCORE_OTHER_ELEMENT_POINTS,
                         metadata={"anchor_date": earnings_ts.date().isoformat()},
+                        side=_side_for(value, spot),
                     )
                 )
 
@@ -206,6 +242,7 @@ def avwap_levels(
                     element="avwap_52w_high",
                     points=SCORE_OTHER_ELEMENT_POINTS,
                     metadata={"anchor_date": pd.Timestamp(anchor_date).date().isoformat()},
+                    side=_side_for(value, spot),
                 )
             )
 
@@ -219,7 +256,7 @@ def _bucket_index(price: float, price_min: float, delta: float, num_buckets: int
     return max(0, min(int((price - price_min) / delta), num_buckets - 1))
 
 
-def hvn_levels(ohlcv_daily: pd.DataFrame) -> list[SupportLevel]:
+def hvn_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
     """High Volume Nodes aproximados (§5.5): histograma de volumen por bucket de precio.
 
     El volumen diario se reparte proporcionalmente entre los buckets que toca el rango
@@ -280,12 +317,13 @@ def hvn_levels(ohlcv_daily: pd.DataFrame) -> list[SupportLevel]:
                     "bucket_upper_price": float(range_hi),
                     "bucket_width": float(delta),
                 },
+                side=_side_for(float(mid), spot),
             )
         )
     return levels
 
 
-def gap_levels(ohlcv_daily: pd.DataFrame) -> list[SupportLevel]:
+def gap_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
     """Gaps alcistas no cerrados en los últimos GAP_LOOKBACK_DAYS (§5.6, 1 pt c/u)."""
     sub = ohlcv_daily.iloc[-GAP_LOOKBACK_DAYS:]
     if len(sub) < 2:
@@ -316,6 +354,7 @@ def gap_levels(ohlcv_daily: pd.DataFrame) -> list[SupportLevel]:
                     "gap_lower": float(gap_lower),
                     "gap_upper": float(gap_upper),
                 },
+                side=_side_for(float(mid), spot),
             )
         )
     return levels
@@ -373,5 +412,6 @@ def divergence_levels(
                 "p1_date": p1.date.date().isoformat(),
                 "p2_date": p2.date.date().isoformat(),
             },
+            side=_side_for(p2.price, close_today),
         )
     ]

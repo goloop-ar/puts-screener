@@ -36,6 +36,11 @@ CLUSTERING_TOLERANCE_ATR: float = 0.5  # elementos a ≤ este múltiplo de ATR s
 MAX_DISTANCE_TO_SUPPORT_PCT: float = 0.10  # zona a ≤ 10% por debajo del spot
 MIN_DISTANCE_TO_SUPPORT_PCT: float = 0.0  # zona puede estar al spot; por encima no aplica
 
+ZONE_MIN_DISTANCE_PCT: float = 0.03
+"""Distancia mínima de la zona al spot. Zonas a < 3% no son accionables
+para venta de puts 30-45 DTE — el strike caería dentro o muy cerca del
+dinero, sin margen para que el precio respete el soporte antes del vencimiento."""
+
 # === Scoring ===
 SCORE_MIN_VALID: int = 3  # mínimo del SOP para validar una zona
 SCORE_SMA200_POINTS: int = 2  # SMA200 (W o D) suma 2 pts

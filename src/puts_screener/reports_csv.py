@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Mapeo de element name (interno) → label legible para reportes (§7.1 ejemplo).
 _ELEMENT_LABELS = {
     "sma_200w": "SMA200W",
-    "sma_200d": "EMA200D",
+    "ema_200d": "EMA200D",
     "fib_618": "FIB_618",
     "fib_786": "FIB_786",
     "avwap_pivot_low": "AVWAP_pivot_low",

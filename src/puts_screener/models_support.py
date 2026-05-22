@@ -7,6 +7,7 @@ envuelve por composición al `ScreenedCandidate` del Paso 1 y NO es frozen, espe
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Literal
 
 from puts_screener.models_screening import ScreenedCandidate
 
@@ -16,9 +17,11 @@ class SupportLevel:
     """Un nivel de soporte individual aportado por uno de los 7 elementos del score."""
 
     price: float
-    element: str  # "sma_200w" | "sma_200d" | "fib_618" | ... (ver §5 de la spec 03)
+    element: str  # "sma_200w" | "ema_200d" | "fib_618" | ... (ver §5 de la spec 03)
     points: int  # SMA200=2, resto=1
     metadata: dict = field(default_factory=dict)  # info auxiliar (fecha del pivot ancla, etc.)
+    # Soporte (price < spot) vs resistencia (price ≥ spot). Solo los soporte entran al clustering.
+    side: Literal["support", "resistance"] = "support"
 
 
 @dataclass(frozen=True)

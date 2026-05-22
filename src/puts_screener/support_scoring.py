@@ -11,6 +11,7 @@ from puts_screener.config_supports import (
     MAX_DISTANCE_TO_SUPPORT_PCT,
     MIN_DISTANCE_TO_SUPPORT_PCT,
     SCORE_MIN_VALID,
+    ZONE_MIN_DISTANCE_PCT,
 )
 from puts_screener.indicators import atr_series, macd_hist_series, rsi_daily_series
 from puts_screener.models_screening import ScreenedCandidate
@@ -44,7 +45,7 @@ def _last_earnings_date(candidate: ScreenedCandidate) -> pd.Timestamp | None:
 
 def _element_category(element: str) -> str:
     """Categoría del elemento para el desempate por diversidad (espeja §6.2/§6.3)."""
-    if element in ("sma_200w", "sma_200d"):
+    if element in ("sma_200w", "ema_200d"):
         return "sma_200"
     if element in ("fib_618", "fib_786"):
         return "fibonacci"
@@ -58,7 +59,10 @@ def _num_categories(zone: SupportZone) -> int:
 
 
 def _rejection_reasons(zone: SupportZone) -> list[str]:
-    """Motivos por los que la zona NO es válida (vacío si pasa las 3 reglas de §7.1)."""
+    """Motivos por los que la zona NO es válida (vacío si pasa las 4 reglas de §7.1).
+
+    Orden: score → confirmador dinámico → distancia máxima/rango → distancia mínima.
+    """
     reasons: list[str] = []
     if zone.score < SCORE_MIN_VALID:
         reasons.append(REASON_LOW_SCORE)
@@ -66,6 +70,11 @@ def _rejection_reasons(zone: SupportZone) -> list[str]:
         reasons.append(REASON_NO_CONFIRMER)
     if not (MIN_DISTANCE_TO_SUPPORT_PCT <= zone.distance_pct <= MAX_DISTANCE_TO_SUPPORT_PCT):
         reasons.append(REASON_OUT_OF_RANGE)
+    if zone.distance_pct < ZONE_MIN_DISTANCE_PCT:
+        reasons.append(
+            f"zona muy cerca del spot ({zone.distance_pct:.1%} < "
+            f"{ZONE_MIN_DISTANCE_PCT:.0%}), no accionable para 30-45 DTE"
+        )
     return reasons
 
 
@@ -101,12 +110,12 @@ def _compute_all_levels(candidate: ScreenedCandidate) -> tuple[list[SupportLevel
     last_earnings = _last_earnings_date(candidate)
 
     levels: list[SupportLevel] = []
-    levels += sma_200_levels(ohlcv, candidate.ohlcv_weekly)
+    levels += sma_200_levels(ohlcv, candidate.ohlcv_weekly, spot)
     levels += polarity_levels(ohlcv, pivots, spot)
     levels += fib_levels(ohlcv, pivots, spot)
-    levels += avwap_levels(ohlcv, pivots, last_earnings)
-    levels += hvn_levels(ohlcv)
-    levels += gap_levels(ohlcv)
+    levels += avwap_levels(ohlcv, pivots, last_earnings, spot)
+    levels += hvn_levels(ohlcv, spot)
+    levels += gap_levels(ohlcv, spot)
     levels += divergence_levels(ohlcv, pivots, rsi_s, macd_s, spot)
     return levels, float(atr_s.iloc[-1]), spot
 

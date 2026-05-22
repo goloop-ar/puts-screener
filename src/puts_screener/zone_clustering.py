@@ -16,16 +16,12 @@ from puts_screener.config_supports import (
 )
 from puts_screener.models_support import SupportLevel, SupportZone
 
-# Margen del 2% por arriba del spot: descarta elementos muy lejos por arriba antes de
-# clusterizar (§6.1 paso 2). El filtro fino de proximidad lo aplica §7 después.
-_SPOT_UPPER_MARGIN = 1.02
-
 
 def compute_zone_score(elements: list[SupportLevel]) -> int:
     """Score de confluencia con dedup por categoría (§6.3, verbatim de la spec)."""
     categories_present = set()
     for e in elements:
-        if e.element in ("sma_200w", "sma_200d"):
+        if e.element in ("sma_200w", "ema_200d"):
             categories_present.add("sma_200")
         elif e.element in ("fib_618", "fib_786"):
             categories_present.add("fibonacci")
@@ -54,9 +50,13 @@ def _is_dynamic_confirmer(element: str) -> bool:
 def cluster_into_zones(
     levels: list[SupportLevel], atr14_today: float, spot: float
 ) -> list[SupportZone]:
-    """Agrupa levels en zonas, scorea cada una y las ordena (score desc, distance asc)."""
+    """Agrupa levels en zonas, scorea cada una y las ordena (score desc, distance asc).
+
+    Solo los niveles `side == "support"` (precio por debajo del spot) entran al clustering;
+    las resistencias se descartan. `spot` se sigue usando para calcular `distance_pct`.
+    """
     eligible = sorted(
-        (lvl for lvl in levels if lvl.price < spot * _SPOT_UPPER_MARGIN),
+        (lvl for lvl in levels if lvl.side == "support"),
         key=lambda lvl: lvl.price,
     )
     if not eligible:

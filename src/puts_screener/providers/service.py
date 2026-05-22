@@ -10,6 +10,7 @@ from .models import (
     AnalystData,
     CompanyProfile,
     EarningsEvent,
+    ExDividendEvent,
     FinancialSnapshot,
     HistoricalEarningsEvent,
     RatingChange,
@@ -39,6 +40,7 @@ class DataService:
         rating_providers: list[DataProvider],
         earnings_providers: list[DataProvider],
         historical_earnings_providers: list[DataProvider],
+        ex_div_providers: list[DataProvider],
     ) -> None:
         self._ohlcv = ohlcv_providers
         self._profile = profile_providers
@@ -47,6 +49,7 @@ class DataService:
         self._rating = rating_providers
         self._earnings = earnings_providers
         self._historical_earnings = historical_earnings_providers
+        self._ex_div = ex_div_providers
 
     def get_ohlcv(self, ticker: str, start: date, end: date, interval: str = "1d") -> pd.DataFrame:
         return self._call_with_fallback(
@@ -113,6 +116,18 @@ class DataService:
             ticker,
             lambda p: p.get_historical_earnings(ticker, lookback_days),
             allow_empty=True,
+        )
+
+    def get_upcoming_ex_dividend(
+        self, ticker: str, lookforward_days: int = 45
+    ) -> ExDividendEvent | None:
+        # None es legítimo (no hay ex-dividend en ventana), igual que earnings.
+        return self._call_with_fallback(
+            "get_upcoming_ex_dividend",
+            self._ex_div,
+            ticker,
+            lambda p: p.get_upcoming_ex_dividend(ticker, lookforward_days),
+            allow_none=True,
         )
 
     def _call_with_fallback(

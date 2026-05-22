@@ -19,6 +19,7 @@ def build_default_data_service() -> DataService:
     - Analyst data: yfinance primario, Finnhub fallback (Finnhub free roto en price_target).
     - Rating changes: yfinance único (Finnhub free roto en upgrade_downgrade).
     - Earnings: yfinance primario, Finnhub fallback.
+    - Ex-dividend: yfinance único (Finnhub/Stooq no lo soportan).
 
     Finnhub se autodesactiva si FINNHUB_API_KEY no está seteada.
     """
@@ -33,4 +34,5 @@ def build_default_data_service() -> DataService:
         rating_providers=[yf],
         earnings_providers=[yf, fh],
         historical_earnings_providers=[yf],
+        ex_div_providers=[yf],
     )

@@ -338,6 +338,8 @@ Mismo que el CSV:
 2. Score desc.
 3. Distance_pct asc.
 
+Los flags de eventos binarios son informativos y NO afectan el ordenamiento. Un candidato T1 score 6 con earnings en ventana se ordena antes que un T1 score 4 sin flags. El humano decide si los flags lo descartan.
+
 ### 8.4 Contenido de cada card
 
 ```html
@@ -409,6 +411,8 @@ Diseño limpio, legible, no decorativo:
 
 Diseño responsivo (mobile-first no es necesario, pero que no se rompa en pantallas chicas).
 
+El objetivo del HTML en MVP es funcional y legible, no decorativo. Si el resultado visual no convence, ese es un issue para spec futura (mejora estética del reporte), no para esta. El criterio de éxito es: el humano puede revisar 30 candidatos en 10 minutos sin abrir otra herramienta para entender qué muestra cada card.
+
 ### 8.6 API
 
 ```python
@@ -453,7 +457,6 @@ def run_final_pipeline(
 ### 9.1 Nuevos flags CLI
 
 - `--skip-reports`: no genera CSV ni HTML.
-- `--skip-binary-events`: no corre Paso 3 (útil para debug).
 - `--macro-calendar PATH`: override del path del calendario macro.
 
 Los existentes (`--limit N`, `--no-persist`, `--skip-support-detection`) se mantienen.
@@ -463,6 +466,8 @@ Los existentes (`--limit N`, `--no-persist`, `--skip-support-detection`) se mant
 ### 10.1 Extensión de tabla `candidates`
 
 Migración idempotente (chequeo con `PRAGMA table_info` antes del `ALTER TABLE`):
+
+La migración debe ejecutar UN solo `PRAGMA table_info(candidates)` al inicio, comparar las columnas existentes contra el set esperado, y ejecutar solo los `ALTER TABLE` necesarios. No ejecutar PRAGMA + ALTER en loop por cada columna.
 
 ```sql
 ALTER TABLE candidates ADD COLUMN earnings_date TEXT;        -- ISO YYYY-MM-DD or NULL
@@ -598,3 +603,6 @@ Dependencias nuevas: `jinja2`, `pyyaml`. Agregar a `requirements.txt`.
 - **Timestamps en filenames**: `screening_YYYY-MM-DD_HHMM` evita sobrescritura. `screening_latest` se actualiza con la última corrida para acceso rápido.
 - **Top N omitido — todos los que pasen se muestran**: SPEC.md original decía "top 20", pero la validación de 200 mostró que típicamente pasan 10-30 candidatos. Mostrar todos.
 - **Ordenamiento por tipo + score + distancia**: prioridad del SOP §0. T1 primero, luego T2, T4, T3 (T5 sería último pero está omitido del screener).
+- **Extensión retroactiva de DataProvider con get_upcoming_ex_dividend**: spec 04 agrega un nuevo método abstracto a la interfaz definida en spec 01. Implementado solo en YFinanceProvider. Los otros providers heredan el default NotSupportedError. Patrón consistente con la extensión previa de get_historical_earnings (2026-05-22).
+- **39 columnas en CSV**: número alto pero cada columna justificada. Si en uso real resulta inmanejable, posible spec futura para CSV ejecutivo (15 col) + CSV completo (39 col). MVP usa el completo único.
+- **Macro calendar minimalista para MVP**: solo FOMC y CPI. PPI, NFP, GDP omitidos porque históricamente movieron menos al mercado. Reversible agregando entries al YAML manualmente.

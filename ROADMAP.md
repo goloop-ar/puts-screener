@@ -131,9 +131,9 @@ Commit `218eff7`. 372 tests verdes.
 
 Pipeline de Paso 2 reescrito desde primeros principios: polaridad corregida, MAs reales completas (SMA200D/W/EMA200D/SMA50D/W/EMA50D), ponderación por elemento, gates de validez compuestos (score numérico + estructural + distancia mín/máx + side + confirmador dinámico). Output estructuralmente más fuerte y selectivo que la versión previa: 6.5% de los tickers pasan vs ~30% pre-rework, con scores que reflejan confluencia real y no doble-conteo.
 
-Etapas 5 y 6 del plan original quedan en backlog (§4):
-- Etapa 5 (filtro de swing range en fibs): perdió prioridad porque Etapa 4 ya neutralizó el problema (FIB_786 peso 0.0, FIB_618 peso 1.5 no califica como heavy).
-- Etapa 6 (Volume Profile real con intradía): postergada a Fase 4 (data de opciones / IBKR / paid providers).
+Etapas 5 y 6 del plan original cerradas como no-implementadas:
+- Etapa 5 (filtro de swing range en fibs): ❌ descartada (2026-05-22). Etapa 4 ya neutralizó el problema (FIB_786 peso 0.0, FIB_618 peso 1.5 no califica como heavy); validado N=200. Ver §3.5/§5.
+- Etapa 6 (Volume Profile real con intradía): ⏸️ postergada a Fase 4 (data de opciones / IBKR / paid providers).
 
 ### Hardening yfinance + observabilidad ✅ (2026-05-22)
 
@@ -255,7 +255,9 @@ las Fases de producto de §3.2–3.4).
 - Umbrales (pendiente calibración post-implementación): requerir ≥2 elementos de peso ≥2.5 para
   zona válida; recalibrar `SCORE_MIN_VALID` con el sistema ponderado.
 
-**Etapa 5 — Fibs con filtro de rango mínimo** ⏸️ Postergada (ver §4 — Etapa 4 ya neutralizó el bug).
+**Etapa 5 — Fibs con filtro de rango mínimo** ❌ Descartada (2026-05-22).
+
+Validación empírica N=200 post-Etapa 4 confirmó que el bug original (fibs de swings chicos generan confluencia artificial) está completamente mitigado por la ponderación: FIB_786 peso 0.0 no contribuye al score, FIB_618 peso 1.5 nunca califica como heavy element (gate ≥2.5). En el bottom 5 del run de validación (scores 5.5-9.5), ningún candidato depende de fibs para validarse — todos pasan por confluencia real de SMA/AVWAP/POLARIDAD/HVN. Implementar Etapa 5 agregaría una constante `MIN_SWING_RANGE_PCT`, lógica de filtro y tests, sin mejorar output, performance ni correctitud. Decisión: NO implementar.
 - Requerir `swing_range > X%` del precio para computar FIB_618.
 - Objetivo: eliminar fibs de swings chicos en rango que generan confluencia artificial.
 
@@ -327,6 +329,7 @@ Para no buscarlas en specs:
 - **2026-05-22 — Etapa 3: dedup SMA200 con 3 labels y nueva categoría SMA50**: `sma_200 = {sma_200w, ema_200d, sma_200d}` (todos suman 2 pts dedupeados pre-Etapa 4; con peso máx post-Etapa 4). `sma_50 = {sma_50d, sma_50w, ema_50d}` análogo.
 - **2026-05-22 — Etapa 4: `compute_zone_score` ahora aplica MAX peso por categoría, no suma**: cuando una zona tiene SMA200W (3.0) + EMA200D (2.5) + SMA200D (3.0) dentro de la misma categoría sma_200, aporta 3.0 (max), no 8.5 (suma). Preserva la intención de dedup pero respeta la jerarquía de pesos diferenciados.
 - **2026-05-22 — Etapa 4: gate estructural compuesto con gate numérico**: una zona necesita `score >= 5.0` AND `>= 2 elementos individuales con peso >= 2.5`. Diseñado para rechazar tanto zonas con score-inflado por acumulación de pesos chicos como zonas con un solo elemento heavy aislado. Validación a escala (n=200) confirma calibración correcta.
+- **2026-05-22 — Etapa 5 del rework descartada (no implementada)**: post-validación N=200, el bug que motivaba Etapa 5 (fibs inflados por swings chicos) está mitigado por la ponderación de Etapa 4 (FIB_786=0.0, FIB_618=1.5 no califica como heavy). Implementarla agregaría complejidad sin valor. Si en el futuro se identifica un caso real donde fibs vuelvan a inflar score, reabrir.
 
 ---
 

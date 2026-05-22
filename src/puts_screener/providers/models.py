@@ -63,6 +63,13 @@ class EarningsEvent:
 
 
 @dataclass(frozen=True)
+class ExDividendEvent:
+    ticker: str
+    date: date
+    amount: float | None  # USD por share, puede no estar disponible
+
+
+@dataclass(frozen=True)
 class HistoricalEarningsEvent:
     ticker: str
     date: date  # fecha del earnings (puede ser hoy o pasado, NO futuro)

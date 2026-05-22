@@ -16,7 +16,10 @@ SECTORS_FCF_FILTER_EXEMPT: set[str] = {"Utilities", "Financial Services", "Real 
 # === Filtros de valoración ===
 MIN_PRICE_TARGET_UPSIDE: float = 0.0
 MIN_RECOMMENDATION_BUY_RATIO: float = 0.5
-MAX_DOWNGRADES_6W: int = 0
+# Subido de 0 a 1 (issue 2.5, 2026-05-21): un único downgrade en un nombre con consenso fuerte de
+# compra (ADSK 0.91, CI 0.88, AMAT 0.79, BKR 0.73 fueron rechazados por 1 solo downgrade) es ruido
+# institucional, no señal. El SOP dice "sin downgrades significativos"; 2+ ya es patrón filtrable.
+MAX_DOWNGRADES_6W: int = 1
 
 # === Filtros de momento técnico ===
 RSI_OVERBOUGHT_THRESHOLD: float = 70.0

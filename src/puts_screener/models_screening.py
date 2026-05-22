@@ -73,6 +73,10 @@ class ScreenedCandidate:
     # Pertenencia a universos (tupla ordenada alfabéticamente, ej. ("nasdaq100", "sp500"))
     universes: tuple[str, ...] = ()
 
+    # Señales informativas de momentum (Etapa 4): "rsi"/"macd"/"both" si la best_zone tiene
+    # divergencia. No filtra; distinto de `momentum_score` (int del Paso 1).
+    momentum_signals: tuple[str, ...] = ()
+
     # Metadatos
     fetched_at: datetime = field(default_factory=datetime.now)
     errors: list[str] = field(default_factory=list)

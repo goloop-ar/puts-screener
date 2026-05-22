@@ -41,8 +41,35 @@ ZONE_MIN_DISTANCE_PCT: float = 0.03
 para venta de puts 30-45 DTE — el strike caería dentro o muy cerca del
 dinero, sin margen para que el precio respete el soporte antes del vencimiento."""
 
-# === Scoring ===
-SCORE_MIN_VALID: int = 3  # mínimo del SOP para validar una zona
-SCORE_SMA200_POINTS: int = 2  # SMA200 (W o D) suma 2 pts
-SCORE_OTHER_ELEMENT_POINTS: int = 1  # cada otro elemento suma 1 pt
+# === Scoring (Etapa 4: pesos diferenciados por elemento) ===
+ELEMENT_WEIGHTS: dict[str, float] = {
+    "sma_200d": 3.0,
+    "sma_200w": 3.0,
+    "polarity": 3.0,
+    "ema_200d": 2.5,
+    "sma_50d": 2.5,
+    "avwap_pivot_low": 2.5,
+    "avwap_earnings": 2.5,
+    "avwap_52w_high": 2.0,
+    "sma_50w": 2.0,
+    "hvn": 2.0,
+    "ema_50d": 1.5,
+    "fib_618": 1.5,
+    "gap_unfilled": 1.0,
+    "fib_786": 0.0,  # informativo, no suma
+    "divergence": 0.0,  # informativo, no suma; sigue siendo confirmador dinámico
+}
+"""Peso de cada elemento en el score de la zona. Float para granularidad."""
+
+HEAVY_ELEMENT_WEIGHT_THRESHOLD: float = 2.5
+"""Umbral para el gate estructural: cuenta como 'pesado' un elemento con peso ≥ este valor."""
+
+MIN_HEAVY_ELEMENTS: int = 2
+"""Mínimo de elementos individuales (no categorías) con peso ≥ HEAVY_ELEMENT_WEIGHT_THRESHOLD
+para que una zona sea válida."""
+
+SCORE_MIN_VALID: float = 5.0
+"""Umbral mínimo de score numérico para zona válida. Provisional; calibrar empíricamente
+con runs reales. Va junto con el gate estructural MIN_HEAVY_ELEMENTS."""
+
 DYNAMIC_CONFIRMERS: tuple[str, ...] = ("avwap", "hvn", "divergence")  # ≥ 1 obligatorio

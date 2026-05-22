@@ -92,6 +92,26 @@ def test_idempotent_migration(tmp_path, candidate_factory):
     cols = [row[1] for row in conn.execute("PRAGMA table_info(candidates)").fetchall()]
     conn.close()
     assert cols.count("pasa_paso_2") == 1  # columna agregada una sola vez
+    assert cols.count("momentum_signals_json") == 1  # Etapa 4: idempotente
+
+
+def test_score_float_round_trip(tmp_path, candidate_factory):
+    db = tmp_path / "supports.db"
+    zone = _zone(
+        95.0,
+        5.5,
+        confirmer=True,
+        distance=0.05,
+        elements=[SupportLevel(price=95.0, element="hvn")],
+    )
+    sc = SupportedCandidate(
+        screened=candidate_factory(_tiny_ohlcv(), ticker="TEST"),
+        analysis=SupportAnalysis(valid_zones=[zone], rejected_zones=[], best_zone=zone),
+        pasa_paso_2=True,
+    )
+    save_support_analysis("run1", [sc], db_path=db)
+    loaded = load_support_zones("run1", ticker="TEST", db_path=db)
+    assert loaded[0].score == 5.5
 
 
 def test_zones_saved_ordered_best_first(tmp_path, candidate_factory):

@@ -57,7 +57,6 @@ def test_sma_200_levels_constant_series():
     assert by_element["sma_200w"].price == pytest.approx(100.0)
     assert by_element["ema_200d"].price == pytest.approx(100.0)
     assert by_element["sma_200d"].price == pytest.approx(100.0)
-    assert all(lvl.points == 2 for lvl in levels)
 
 
 def test_sma_200_levels_ema_cross_check():
@@ -102,7 +101,6 @@ def test_sma_50_levels_full():
     levels = sma_50_levels(daily, spot=110.0)
     by_element = {lvl.element: lvl for lvl in levels}
     assert set(by_element) == {"sma_50d", "sma_50w", "ema_50d"}
-    assert all(lvl.points == 1 for lvl in levels)
 
 
 def test_sma_50_levels_insufficient_data():
@@ -135,7 +133,7 @@ def test_polarity_levels_only_broken_resistances():
 
     prices = sorted(lvl.price for lvl in levels)
     assert prices == [100.0, 110.0]
-    assert all(lvl.element == "polarity" and lvl.points == 1 for lvl in levels)
+    assert all(lvl.element == "polarity" for lvl in levels)
 
 
 def test_polarity_levels_excludes_old_pivots():
@@ -274,7 +272,7 @@ def test_hvn_levels_detects_volume_node():
 
     levels = hvn_levels(daily, spot=130.0)
     assert levels  # no vacío
-    assert all(lvl.element == "hvn" and lvl.points == 1 for lvl in levels)
+    assert all(lvl.element == "hvn" for lvl in levels)
     assert min(abs(lvl.price - 100.0) for lvl in levels) < 2.0
 
 

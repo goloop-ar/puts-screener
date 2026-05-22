@@ -18,10 +18,12 @@ class SupportLevel:
 
     price: float
     element: str  # "sma_200w" | "ema_200d" | "fib_618" | ... (ver §5 de la spec 03)
-    points: int  # SMA200=2, resto=1
     metadata: dict = field(default_factory=dict)  # info auxiliar (fecha del pivot ancla, etc.)
     # Soporte (price < spot) vs resistencia (price ≥ spot). Solo los soporte entran al clustering.
     side: Literal["support", "resistance"] = "support"
+    # Vestigial (Etapa 4): el peso real vive en ELEMENT_WEIGHTS keyed por `element`. Se conserva
+    # por compatibilidad de persistencia (elements_json). Default 0.0; algunos tests lo setean.
+    points: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -31,7 +33,7 @@ class SupportZone:
     center_price: float  # mediana de los precios de los elementos
     lower_bound: float  # center - 0.5×ATR14
     upper_bound: float  # center + 0.5×ATR14
-    score: int  # suma de points con dedup por categoría (§6.3)
+    score: float  # suma ponderada por categoría (peso = máximo entre elementos de la categoría)
     elements: list[SupportLevel]  # elementos que componen la zona
     has_dynamic_confirmer: bool  # True si tiene avwap, hvn o divergence
     distance_pct: float  # (spot - center_price) / spot

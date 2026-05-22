@@ -60,6 +60,12 @@
       border-radius: 8px; padding: 0.5rem 0.75rem;
     }
     .flags h4 { color: var(--flag-text); }
+    .momentum {
+      margin-top: 0.7rem; background: #eef1f5; border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.5rem 0.75rem;
+    }
+    .momentum h4 { margin: 0 0 0.3rem; font-size: 0.85rem; color: var(--muted); }
+    .momentum ul { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
     footer { color: var(--muted); font-size: 0.8rem; text-align: center; }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -103,7 +109,7 @@
         </div>
         <div class="metric">
           <span class="label">Score</span>
-          <span class="value score-{{ c.score }}">{{ c.score }}</span>
+          <span class="value">{{ "%.1f"|format(c.score) }}</span>
         </div>
         <div class="metric">
           <span class="label">Distancia</span>
@@ -134,6 +140,17 @@
         <ul>
           {% for flag in c.flags_legibles %}
           <li>{{ flag }}</li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {% if c.momentum_signals %}
+      <section class="momentum">
+        <h4>Señales de momentum</h4>
+        <ul>
+          {% for signal in c.momentum_signals %}
+          <li>Divergencia ({{ signal }})</li>
           {% endfor %}
         </ul>
       </section>

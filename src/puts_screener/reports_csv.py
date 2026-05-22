@@ -81,6 +81,7 @@ CSV_COLUMNS: tuple[str, ...] = (
     "flags_legibles",
     "fetched_at",
     "universes",
+    "momentum_signals",
 )
 
 
@@ -130,7 +131,7 @@ def _build_row(fc: FinalCandidate) -> dict:
         "zona_max": zone.upper_bound,
         "zona_centro": zone.center_price,
         "distancia_pct": zone.distance_pct,
-        "score_soporte": zone.score,
+        "score_soporte": f"{zone.score:.1f}",
         "n_elementos": len(zone.elements),
         "elementos_score": " | ".join(element_label(e.element) for e in zone.elements),
         "confirmador_dinamico": zone.has_dynamic_confirmer,
@@ -158,6 +159,7 @@ def _build_row(fc: FinalCandidate) -> dict:
         "flags_legibles": " | ".join(be.flags_legibles),
         "fetched_at": _iso_or_none(fc.fetched_at),
         "universes": "|".join(screened.universes),
+        "momentum_signals": "|".join(screened.momentum_signals),
     }
     # None → "" (no "None"), explícito para no depender del comportamiento del módulo csv.
     return {key: ("" if value is None else value) for key, value in row.items()}

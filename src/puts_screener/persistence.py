@@ -136,6 +136,7 @@ _CANDIDATE_COLUMNS = (
     "motivos_rechazo",
     "errors",
     "universes_json",
+    "momentum_signals_json",
 )
 _INSERT_CANDIDATE_SQL = (
     f"INSERT INTO candidates ({', '.join(_CANDIDATE_COLUMNS)}) "
@@ -185,6 +186,7 @@ _CANDIDATE_MIGRATION_COLUMNS: dict[str, str] = {
     "tiene_eventos_binarios": "INTEGER",
     "flags_legibles_json": "TEXT",
     "universes_json": "TEXT",  # Etapa 1 — pertenencia a universos (JSON: lista ordenada)
+    "momentum_signals_json": "TEXT",  # Etapa 4 — señales de divergencia (JSON: lista)
 }
 
 # Columnas agregadas a `runs` por specs posteriores. Misma migración idempotente que candidates.
@@ -255,6 +257,7 @@ def _candidate_row(run_id: str, c: ScreenedCandidate) -> tuple:
         json.dumps(c.motivos_rechazo),
         json.dumps(c.errors),
         json.dumps(sorted(c.universes)),
+        json.dumps(list(c.momentum_signals)),
     )
 
 
@@ -327,6 +330,9 @@ def get_run_candidates(
         d["motivos_rechazo"] = json.loads(d["motivos_rechazo"]) if d["motivos_rechazo"] else []
         d["errors"] = json.loads(d["errors"]) if d["errors"] else []
         d["universes"] = json.loads(d["universes_json"]) if d.get("universes_json") else []
+        d["momentum_signals"] = (
+            json.loads(d["momentum_signals_json"]) if d.get("momentum_signals_json") else []
+        )
         d["pasa_filtros_paso_1"] = bool(d["pasa_filtros_paso_1"])
         result.append(d)
     return result
@@ -385,8 +391,14 @@ def save_support_analysis(
                     ),
                 )
             conn.execute(
-                "UPDATE candidates SET pasa_paso_2 = ? WHERE run_id = ? AND ticker = ?",
-                (1 if sc.pasa_paso_2 else 0, run_id, ticker),
+                "UPDATE candidates SET pasa_paso_2 = ?, momentum_signals_json = ? "
+                "WHERE run_id = ? AND ticker = ?",
+                (
+                    1 if sc.pasa_paso_2 else 0,
+                    json.dumps(list(sc.screened.momentum_signals)),
+                    run_id,
+                    ticker,
+                ),
             )
 
     logger.info(

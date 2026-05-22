@@ -86,6 +86,22 @@ def test_html_universe_badges_multiple(tmp_path, final_candidate_factory):
     assert {b.get_text(strip=True) for b in badges} == {"nasdaq100", "sp500"}
 
 
+def test_html_momentum_section_absent_when_no_signals(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(ticker="NOSIG", momentum_signals=())
+    path = write_html_report([fc], _META, output_dir=tmp_path)
+    card = _soup(path).find("article", class_="card")
+    assert card.find("section", class_="momentum") is None
+
+
+def test_html_momentum_section_shown_with_signals(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(ticker="SIG", momentum_signals=("rsi",))
+    path = write_html_report([fc], _META, output_dir=tmp_path)
+    card = _soup(path).find("article", class_="card")
+    section = card.find("section", class_="momentum")
+    assert section is not None
+    assert "Divergencia (rsi)" in section.get_text()
+
+
 def test_html_latest_copy_created(tmp_path, final_candidate_factory):
     path = write_html_report([final_candidate_factory()], _META, output_dir=tmp_path)
     latest = tmp_path / "screening_latest.html"

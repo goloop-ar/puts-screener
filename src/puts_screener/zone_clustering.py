@@ -1,8 +1,8 @@
 """Agrupamiento de SupportLevel en zonas de confluencia y scoring (§6 de la spec 03).
 
-Los elementos cercanos (≤ 0.5×ATR14) se agrupan en una `SupportZone`. El score suma
-puntos con dedup por categoría: un elemento de la misma categoría suma como máximo una vez
-por zona (SMA200 vale 2, el resto 1).
+Los elementos cercanos (≤ 0.5×ATR14) se agrupan en una `SupportZone`. El score es la suma
+ponderada por categoría (dedup §6.3): cada categoría aporta el MÁXIMO peso entre sus
+elementos presentes (pesos en ELEMENT_WEIGHTS, Etapa 4).
 """
 
 import statistics
@@ -10,32 +10,38 @@ import statistics
 from puts_screener.config_supports import (
     CLUSTERING_TOLERANCE_ATR,
     DYNAMIC_CONFIRMERS,
-    SCORE_OTHER_ELEMENT_POINTS,
-    SCORE_SMA200_POINTS,
+    ELEMENT_WEIGHTS,
     ZONE_WIDTH_ATR_MULTIPLIER,
 )
 from puts_screener.models_support import SupportLevel, SupportZone
 
 
-def compute_zone_score(elements: list[SupportLevel]) -> int:
-    """Score de confluencia con dedup por categoría (§6.3, verbatim de la spec)."""
-    categories_present = set()
-    for e in elements:
-        if e.element in ("sma_200w", "ema_200d", "sma_200d"):
-            categories_present.add("sma_200")
-        elif e.element in ("sma_50w", "sma_50d", "ema_50d"):
-            categories_present.add("sma_50")
-        elif e.element in ("fib_618", "fib_786"):
-            categories_present.add("fibonacci")
-        elif e.element.startswith("avwap_"):
-            categories_present.add("avwap")
-        else:
-            categories_present.add(e.element)
+def _element_category(element: str) -> str:
+    """Categoría de dedup del elemento (sma_200/sma_50/fibonacci/avwap o el propio label)."""
+    if element in ("sma_200w", "ema_200d", "sma_200d"):
+        return "sma_200"
+    if element in ("sma_50w", "sma_50d", "ema_50d"):
+        return "sma_50"
+    if element in ("fib_618", "fib_786"):
+        return "fibonacci"
+    if element.startswith("avwap_"):
+        return "avwap"
+    return element
 
-    score = 0
-    for cat in categories_present:
-        score += SCORE_SMA200_POINTS if cat == "sma_200" else SCORE_OTHER_ELEMENT_POINTS
-    return score
+
+def compute_zone_score(elements: list[SupportLevel]) -> float:
+    """Score ponderado con dedup por categoría (§6.3 + Etapa 4).
+
+    Por cada categoría presente, aporta el máximo peso (ELEMENT_WEIGHTS) entre sus elementos.
+    Elementos desconocidos o de peso 0.0 (fib_786, divergence) no suman.
+    """
+    category_max_weight: dict[str, float] = {}
+    for e in elements:
+        cat = _element_category(e.element)
+        weight = ELEMENT_WEIGHTS.get(e.element, 0.0)
+        if weight > category_max_weight.get(cat, 0.0):
+            category_max_weight[cat] = weight
+    return sum(category_max_weight.values())
 
 
 def _is_dynamic_confirmer(element: str) -> bool:

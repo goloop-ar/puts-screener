@@ -29,8 +29,6 @@ from puts_screener.config_supports import (
     HVN_PERCENTILE_THRESHOLD,
     LAST_PIVOT_HIGH_LOOKBACK_DAYS,
     LAST_SWING_LOOKBACK_DAYS,
-    SCORE_OTHER_ELEMENT_POINTS,
-    SCORE_SMA200_POINTS,
 )
 from puts_screener.indicators import ema_daily, sma_daily, sma_weekly
 from puts_screener.models_support import SupportLevel
@@ -84,7 +82,6 @@ def sma_200_levels(
             SupportLevel(
                 price=sma_200w,
                 element="sma_200w",
-                points=SCORE_SMA200_POINTS,
                 side=_side_for(sma_200w, spot),
             )
         )
@@ -96,7 +93,6 @@ def sma_200_levels(
             SupportLevel(
                 price=ema_200d,
                 element="ema_200d",
-                points=SCORE_SMA200_POINTS,
                 side=_side_for(ema_200d, spot),
             )
         )
@@ -107,7 +103,6 @@ def sma_200_levels(
             SupportLevel(
                 price=sma_200d,
                 element="sma_200d",
-                points=SCORE_SMA200_POINTS,
                 side=_side_for(sma_200d, spot),
             )
         )
@@ -129,7 +124,6 @@ def sma_50_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
             SupportLevel(
                 price=sma_50d,
                 element="sma_50d",
-                points=SCORE_OTHER_ELEMENT_POINTS,
                 side=_side_for(sma_50d, spot),
             )
         )
@@ -143,7 +137,6 @@ def sma_50_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
             SupportLevel(
                 price=sma_50w,
                 element="sma_50w",
-                points=SCORE_OTHER_ELEMENT_POINTS,
                 side=_side_for(sma_50w, spot),
             )
         )
@@ -154,7 +147,6 @@ def sma_50_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
             SupportLevel(
                 price=ema_50d,
                 element="ema_50d",
-                points=SCORE_OTHER_ELEMENT_POINTS,
                 side=_side_for(ema_50d, spot),
             )
         )
@@ -174,7 +166,6 @@ def polarity_levels(
                 SupportLevel(
                     price=pivot.price,
                     element="polarity",
-                    points=SCORE_OTHER_ELEMENT_POINTS,
                     metadata={"pivot_date": pivot.date.date().isoformat()},
                     side=_side_for(pivot.price, close_today),
                 )
@@ -223,14 +214,12 @@ def fib_levels(
         SupportLevel(
             price=fib_618,
             element="fib_618",
-            points=SCORE_OTHER_ELEMENT_POINTS,
             metadata=metadata,
             side=_side_for(fib_618, close_today),
         ),
         SupportLevel(
             price=fib_786,
             element="fib_786",
-            points=SCORE_OTHER_ELEMENT_POINTS,
             metadata=metadata,
             side=_side_for(fib_786, close_today),
         ),
@@ -271,7 +260,6 @@ def avwap_levels(
                 SupportLevel(
                     price=value,
                     element="avwap_pivot_low",
-                    points=SCORE_OTHER_ELEMENT_POINTS,
                     metadata={"anchor_date": pivot_low_last.date.date().isoformat()},
                     side=_side_for(value, spot),
                 )
@@ -286,7 +274,6 @@ def avwap_levels(
                     SupportLevel(
                         price=value,
                         element="avwap_earnings",
-                        points=SCORE_OTHER_ELEMENT_POINTS,
                         metadata={"anchor_date": earnings_ts.date().isoformat()},
                         side=_side_for(value, spot),
                     )
@@ -301,7 +288,6 @@ def avwap_levels(
                 SupportLevel(
                     price=value,
                     element="avwap_52w_high",
-                    points=SCORE_OTHER_ELEMENT_POINTS,
                     metadata={"anchor_date": pd.Timestamp(anchor_date).date().isoformat()},
                     side=_side_for(value, spot),
                 )
@@ -370,7 +356,6 @@ def hvn_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
             SupportLevel(
                 price=float(mid),
                 element="hvn",
-                points=SCORE_OTHER_ELEMENT_POINTS,
                 metadata={
                     "bucket_start": start,
                     "bucket_end": k - 1,
@@ -409,7 +394,6 @@ def gap_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
             SupportLevel(
                 price=float(mid),
                 element="gap_unfilled",
-                points=SCORE_OTHER_ELEMENT_POINTS,
                 metadata={
                     "gap_date": dates[d].date().isoformat(),
                     "gap_lower": float(gap_lower),
@@ -467,7 +451,6 @@ def divergence_levels(
         SupportLevel(
             price=p2.price,
             element="divergence",
-            points=SCORE_OTHER_ELEMENT_POINTS,
             metadata={
                 "oscillator": oscillator,
                 "p1_date": p1.date.date().isoformat(),

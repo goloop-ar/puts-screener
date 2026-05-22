@@ -21,12 +21,37 @@ def test_csv_created_with_expected_name(tmp_path, final_candidate_factory):
     assert path.exists()
 
 
-def test_csv_has_40_columns_in_exact_order(tmp_path, final_candidate_factory):
+def test_csv_has_41_columns_in_exact_order(tmp_path, final_candidate_factory):
     path = write_csv_report([final_candidate_factory()], output_dir=tmp_path)
     fieldnames, _ = _read_csv(path)
     assert fieldnames == list(CSV_COLUMNS)
-    assert len(fieldnames) == 40
-    assert fieldnames[39] == "universes"  # columna 40, al final
+    assert len(fieldnames) == 41
+    assert fieldnames[39] == "universes"  # columna 40
+    assert fieldnames[40] == "momentum_signals"  # columna 41, al final
+
+
+def test_csv_score_formatted_one_decimal(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(score=5.5)
+    path = write_csv_report([fc], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    assert rows[0]["score_soporte"] == "5.5"
+
+
+def test_csv_score_integer_value_shows_one_decimal(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(score=5)
+    path = write_csv_report([fc], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    assert rows[0]["score_soporte"] == "5.0"
+
+
+def test_csv_momentum_signals_column(tmp_path, final_candidate_factory):
+    empty = final_candidate_factory(ticker="A")
+    with_sig = final_candidate_factory(ticker="B", momentum_signals=("rsi", "macd"))
+    path = write_csv_report([empty, with_sig], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    by_ticker = {r["ticker"]: r for r in rows}
+    assert by_ticker["A"]["momentum_signals"] == ""
+    assert by_ticker["B"]["momentum_signals"] == "rsi|macd"
 
 
 def test_csv_universes_single(tmp_path, final_candidate_factory):

@@ -15,6 +15,7 @@ from puts_screener.config_reports import (
     REPORT_LATEST_FILENAME,
     REPORT_OUTPUT_DIR,
 )
+from puts_screener.config_supports import ELEMENT_WEIGHTS
 from puts_screener.models_final import FinalCandidate
 from puts_screener.reports_csv import element_label, sort_final_candidates
 
@@ -32,10 +33,10 @@ def _format_candidate(fc: FinalCandidate) -> dict:
     analyst = screened.analyst
     tipo = (classification.tipo if classification else "") or ""
 
-    # Elementos ordenados por puntos desc; el template muestra los primeros 8.
+    # Elementos ordenados por peso desc (ELEMENT_WEIGHTS); el template muestra los primeros 8.
     elements = [
         {"label": element_label(e.element), "price": round(e.price, 2)}
-        for e in sorted(zone.elements, key=lambda e: -e.points)
+        for e in sorted(zone.elements, key=lambda e: -ELEMENT_WEIGHTS.get(e.element, 0.0))
     ]
     pt_mean = analyst.price_target_mean
 
@@ -62,6 +63,7 @@ def _format_candidate(fc: FinalCandidate) -> dict:
         "buy_ratio": round(screened.recommendation_buy_ratio * 100, 1),
         "downgrades": screened.downgrades_6w_count,
         "flags_legibles": list(fc.binary_events.flags_legibles),
+        "momentum_signals": list(screened.momentum_signals),
     }
 
 

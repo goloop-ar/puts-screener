@@ -18,7 +18,7 @@ def test_far_apart_levels_form_separate_zones():
     levels = [_level(100.0, "hvn"), _level(110.0, "polarity")]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 2
-    assert {z.score for z in zones} == {1}
+    assert {z.score for z in zones} == {2.0, 3.0}  # hvn=2.0, polarity=3.0
 
 
 def test_close_levels_form_single_zone():
@@ -32,21 +32,23 @@ def test_close_levels_form_single_zone():
 # --- dedup por categoría ---
 
 
-def test_dedup_sma200_counts_two_not_four():
-    levels = [_level(100.0, "sma_200w", points=2), _level(100.2, "ema_200d", points=2)]
+def test_dedup_sma200_uses_max_weight():
+    """SMA200W (3.0) + EMA200D (2.5) → categoría sma_200 aporta el máximo (3.0), no 5.5."""
+    levels = [_level(100.0, "sma_200w"), _level(100.2, "ema_200d")]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
-    assert zones[0].score == 2  # categoría sma_200 una sola vez (no 4)
+    assert zones[0].score == 3.0
 
 
-def test_dedup_fibonacci_counts_one_not_two():
+def test_dedup_fibonacci_fib618_weight():
+    """FIB_618 (1.5) + FIB_786 (0.0) → categoría fibonacci aporta 1.5."""
     levels = [_level(100.0, "fib_618"), _level(100.3, "fib_786")]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
-    assert zones[0].score == 1
+    assert zones[0].score == 1.5
 
 
-def test_dedup_avwap_counts_one_not_three():
+def test_dedup_avwap_max_weight():
     levels = [
         _level(100.0, "avwap_pivot_low"),
         _level(100.2, "avwap_earnings"),
@@ -54,38 +56,38 @@ def test_dedup_avwap_counts_one_not_three():
     ]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
-    assert zones[0].score == 1
+    assert zones[0].score == 2.5  # max(2.5, 2.5, 2.0)
     assert zones[0].has_dynamic_confirmer is True
 
 
-def test_mixed_confluence_scores_five():
-    """SMA200 (2) + fib (1) + AVWAP (1) + HVN (1) en la misma zona = 5."""
+def test_mixed_confluence_weighted_score():
+    """SMA200 (3.0) + fib_618 (1.5) + AVWAP (2.5) + HVN (2.0) = 9.0."""
     levels = [
-        _level(100.0, "sma_200w", points=2),
+        _level(100.0, "sma_200w"),
         _level(100.2, "fib_618"),
         _level(100.4, "avwap_pivot_low"),
         _level(100.5, "hvn"),
     ]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
-    assert zones[0].score == 5
+    assert zones[0].score == 9.0
     assert zones[0].has_dynamic_confirmer is True
 
 
-def test_dedup_sma200_three_labels_counts_two():
-    """SMA200W + EMA200D + SMA200D en la misma zona → categoría sma_200 = 2 pts (no 6)."""
+def test_dedup_sma200_three_labels_max_weight():
+    """SMA200W (3.0) + EMA200D (2.5) + SMA200D (3.0) → categoría sma_200 = 3.0."""
     levels = [
-        _level(100.0, "sma_200w", points=2),
-        _level(100.1, "ema_200d", points=2),
-        _level(100.2, "sma_200d", points=2),
+        _level(100.0, "sma_200w"),
+        _level(100.1, "ema_200d"),
+        _level(100.2, "sma_200d"),
     ]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
-    assert zones[0].score == 2
+    assert zones[0].score == 3.0
 
 
-def test_dedup_sma50_three_labels_counts_one():
-    """SMA50W + SMA50D + EMA50D en la misma zona → categoría sma_50 = 1 pt (no 3)."""
+def test_dedup_sma50_three_labels_max_weight():
+    """SMA50D (2.5) + SMA50W (2.0) + EMA50D (1.5) → categoría sma_50 = 2.5."""
     levels = [
         _level(100.0, "sma_50w"),
         _level(100.1, "sma_50d"),
@@ -93,20 +95,42 @@ def test_dedup_sma50_three_labels_counts_one():
     ]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
-    assert zones[0].score == 1
+    assert zones[0].score == 2.5
 
 
-def test_sma200_plus_sma50_plus_confirmer_scores_four():
-    """SMA200 (2) + SMA50 (1) + HVN (1) = 4."""
+def test_sma200_plus_sma50_plus_confirmer_weighted():
+    """SMA200 (3.0) + SMA50 (2.5) + HVN (2.0) = 7.5."""
     levels = [
-        _level(100.0, "sma_200w", points=2),
+        _level(100.0, "sma_200w"),
         _level(100.2, "sma_50d"),
         _level(100.4, "hvn"),
     ]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 1
-    assert zones[0].score == 4
+    assert zones[0].score == 7.5
     assert zones[0].has_dynamic_confirmer is True
+
+
+def test_divergence_does_not_add_to_score():
+    """DIVERGENCIA (0.0) + HVN (2.0) + POLARIDAD (3.0) = 5.0; la divergencia no suma."""
+    levels = [_level(100.0, "divergence"), _level(100.2, "hvn"), _level(100.4, "polarity")]
+    zones = cluster_into_zones(levels, ATR, SPOT)
+    assert len(zones) == 1
+    assert zones[0].score == 5.0
+
+
+def test_single_element_zone_scores_its_weight():
+    levels = [_level(100.0, "hvn")]
+    zones = cluster_into_zones(levels, ATR, SPOT)
+    assert len(zones) == 1
+    assert zones[0].score == 2.0
+
+
+def test_unknown_element_contributes_zero():
+    """Un label desconocido no aporta al score y no rompe."""
+    assert compute_zone_score([_level(100.0, "no_existe")]) == 0.0
+    mixed = [_level(100.0, "hvn"), _level(100.1, "no_existe")]
+    assert compute_zone_score(mixed) == 2.0
 
 
 # --- filtro por side (support vs resistance) ---
@@ -153,8 +177,8 @@ def test_zones_sorted_by_score_desc():
     ]
     zones = cluster_into_zones(levels, ATR, SPOT)
     assert len(zones) == 2
-    assert zones[0].score == 5
-    assert zones[0].center_price < 100.0  # la de score 5 va primera pese a estar más lejos
+    assert zones[0].score == 9.0  # 3.0 + 1.5 + 2.5 + 2.0
+    assert zones[0].center_price < 100.0  # la de mayor score va primera pese a estar más lejos
 
 
 def test_zones_same_score_sorted_by_distance():
@@ -171,10 +195,10 @@ def test_zones_same_score_sorted_by_distance():
 
 def test_compute_zone_score_dedup_across_categories():
     elements = [
-        _level(100.0, "sma_200w", points=2),
-        _level(100.0, "ema_200d", points=2),  # misma categoría → no duplica
+        _level(100.0, "sma_200w"),
+        _level(100.0, "ema_200d"),  # misma categoría sma_200 → max(3.0, 2.5) = 3.0
         _level(100.0, "fib_618"),
-        _level(100.0, "fib_786"),  # misma categoría → no duplica
-        _level(100.0, "divergence"),
+        _level(100.0, "fib_786"),  # misma categoría fibonacci → max(1.5, 0.0) = 1.5
+        _level(100.0, "divergence"),  # peso 0.0 → no aporta
     ]
-    assert compute_zone_score(elements) == 2 + 1 + 1  # sma_200 (sma_200w+ema_200d) + fib + diverg.
+    assert compute_zone_score(elements) == 4.5  # 3.0 (sma_200) + 1.5 (fibonacci) + 0.0

@@ -8,8 +8,11 @@ de §7.1/§7.2 para que sea testeable con zonas construidas a mano.
 import pandas as pd
 
 from puts_screener.config_supports import (
+    ELEMENT_WEIGHTS,
+    HEAVY_ELEMENT_WEIGHT_THRESHOLD,
     MAX_DISTANCE_TO_SUPPORT_PCT,
     MIN_DISTANCE_TO_SUPPORT_PCT,
+    MIN_HEAVY_ELEMENTS,
     SCORE_MIN_VALID,
     ZONE_MIN_DISTANCE_PCT,
 )
@@ -28,10 +31,10 @@ from puts_screener.support_elements import (
     sma_50_levels,
     sma_200_levels,
 )
-from puts_screener.zone_clustering import cluster_into_zones
+from puts_screener.zone_clustering import _element_category, cluster_into_zones
 
 # Motivos de rechazo literales (consistentes con persistencia y reportes).
-REASON_LOW_SCORE = "score < 3"
+REASON_LOW_SCORE = f"score < {SCORE_MIN_VALID}"
 REASON_NO_CONFIRMER = "sin confirmador dinámico"
 REASON_OUT_OF_RANGE = "fuera de rango de proximidad (>10% o por encima del spot)"
 
@@ -42,19 +45,6 @@ def _last_earnings_date(candidate: ScreenedCandidate) -> pd.Timestamp | None:
         return None
     latest = max(candidate.earnings_history, key=lambda e: e.date)
     return pd.Timestamp(latest.date)
-
-
-def _element_category(element: str) -> str:
-    """Categoría del elemento para el desempate por diversidad (espeja §6.2/§6.3)."""
-    if element in ("sma_200w", "ema_200d", "sma_200d"):
-        return "sma_200"
-    if element in ("sma_50w", "sma_50d", "ema_50d"):
-        return "sma_50"
-    if element in ("fib_618", "fib_786"):
-        return "fibonacci"
-    if element.startswith("avwap_"):
-        return "avwap"
-    return element
 
 
 def _num_categories(zone: SupportZone) -> int:
@@ -77,6 +67,16 @@ def _rejection_reasons(zone: SupportZone) -> list[str]:
         reasons.append(
             f"zona muy cerca del spot ({zone.distance_pct:.1%} < "
             f"{ZONE_MIN_DISTANCE_PCT:.0%}), no accionable para 30-45 DTE"
+        )
+    heavy = [
+        e
+        for e in zone.elements
+        if ELEMENT_WEIGHTS.get(e.element, 0.0) >= HEAVY_ELEMENT_WEIGHT_THRESHOLD
+    ]
+    if len(heavy) < MIN_HEAVY_ELEMENTS:
+        reasons.append(
+            f"solo {len(heavy)} elementos peso >= {HEAVY_ELEMENT_WEIGHT_THRESHOLD} "
+            f"(requeridos {MIN_HEAVY_ELEMENTS})"
         )
     return reasons
 
@@ -132,4 +132,17 @@ def analyze_supports(candidate: ScreenedCandidate, data_service: DataService) ->
     """
     levels, atr14_today, spot = _compute_all_levels(candidate)
     zones = cluster_into_zones(levels, atr14_today, spot)
-    return validate_and_rank(zones)
+    analysis = validate_and_rank(zones)
+
+    # Señal informativa (Etapa 4): divergencia de la best_zone, NO suma al score.
+    best = analysis.best_zone
+    candidate.momentum_signals = (
+        tuple(
+            e.metadata.get("oscillator", "divergence")
+            for e in best.elements
+            if e.element == "divergence"
+        )
+        if best is not None
+        else ()
+    )
+    return analysis

@@ -21,6 +21,7 @@ def _candidate(
     motivos=None,
     errors=None,
     universes=(),
+    momentum_signals=(),
 ):
     return ScreenedCandidate(
         ticker=ticker,
@@ -61,6 +62,7 @@ def _candidate(
         motivos_rechazo=motivos if motivos is not None else [],
         errors=errors if errors is not None else [],
         universes=tuple(universes),
+        momentum_signals=tuple(momentum_signals),
     )
 
 
@@ -164,6 +166,14 @@ def test_candidate_universes_round_trip(tmp_path):
     # load: get_run_candidates decodifica a lista.
     loaded = get_run_candidates(run_id, db_path=db)[0]
     assert loaded["universes"] == ["nasdaq100", "sp500"]
+
+
+def test_candidate_momentum_signals_round_trip(tmp_path):
+    db = tmp_path / "test.db"
+    c = _candidate(ticker="AAPL", momentum_signals=("rsi", "macd"))
+    run_id = save_run([c], universe_size=1, started_at=datetime.now(), db_path=db)
+    loaded = get_run_candidates(run_id, db_path=db)[0]
+    assert loaded["momentum_signals"] == ["rsi", "macd"]
 
 
 def test_runs_universes_json_persisted(tmp_path):

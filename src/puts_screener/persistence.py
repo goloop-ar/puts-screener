@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from puts_screener.models_final import FinalCandidate
 from puts_screener.models_screening import ScreenedCandidate
 from puts_screener.models_support import SupportedCandidate, SupportLevel, SupportZone
 
@@ -139,6 +140,26 @@ _INSERT_CANDIDATE_SQL = (
     f"VALUES ({', '.join(['?'] * len(_CANDIDATE_COLUMNS))})"
 )
 
+# Columnas de eventos binarios (Paso 3, spec 04) actualizadas por save_binary_events.
+_BINARY_EVENT_COLUMNS = (
+    "earnings_date",
+    "dias_a_earnings",
+    "earnings_en_45d",
+    "ex_div_date",
+    "dias_a_ex_div",
+    "ex_div_en_45d",
+    "ex_div_amount",
+    "eventos_macro_en_45d",
+    "eventos_macro_json",
+    "tiene_eventos_binarios",
+    "flags_legibles_json",
+)
+_UPDATE_BINARY_EVENTS_SQL = (
+    "UPDATE candidates SET "
+    + ", ".join(f"{col} = ?" for col in _BINARY_EVENT_COLUMNS)
+    + " WHERE run_id = ? AND ticker = ?"
+)
+
 
 def _get_db_path() -> Path:
     """Resuelve el path del DB respetando PUTS_SCREENER_DB_PATH."""
@@ -146,11 +167,30 @@ def _get_db_path() -> Path:
     return Path(env_path) if env_path else DEFAULT_DB_PATH
 
 
-def _ensure_pasa_paso_2_column(conn: sqlite3.Connection) -> None:
-    """Migración idempotente: agrega candidates.pasa_paso_2 solo si no existe."""
-    cols = {row["name"] for row in conn.execute("PRAGMA table_info(candidates)").fetchall()}
-    if "pasa_paso_2" not in cols:
-        conn.execute("ALTER TABLE candidates ADD COLUMN pasa_paso_2 INTEGER")
+# Columnas agregadas a `candidates` por specs posteriores a la creación de la tabla.
+# Migración idempotente: un solo PRAGMA + ALTER de las que falten (§10.1 spec 04).
+_CANDIDATE_MIGRATION_COLUMNS: dict[str, str] = {
+    "pasa_paso_2": "INTEGER",  # spec 03
+    "earnings_date": "TEXT",  # spec 04 — eventos binarios (ISO YYYY-MM-DD o NULL)
+    "dias_a_earnings": "INTEGER",
+    "earnings_en_45d": "INTEGER",
+    "ex_div_date": "TEXT",
+    "dias_a_ex_div": "INTEGER",
+    "ex_div_en_45d": "INTEGER",
+    "ex_div_amount": "REAL",
+    "eventos_macro_en_45d": "INTEGER",
+    "eventos_macro_json": "TEXT",
+    "tiene_eventos_binarios": "INTEGER",
+    "flags_legibles_json": "TEXT",
+}
+
+
+def _migrate_candidate_columns(conn: sqlite3.Connection) -> None:
+    """Agrega las columnas faltantes a `candidates` (un PRAGMA, ALTER solo de las que falten)."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(candidates)").fetchall()}
+    for column, sql_type in _CANDIDATE_MIGRATION_COLUMNS.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE candidates ADD COLUMN {column} {sql_type}")
 
 
 @contextmanager
@@ -162,7 +202,7 @@ def _connect(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(_SCHEMA_SQL)
-        _ensure_pasa_paso_2_column(conn)
+        _migrate_candidate_columns(conn)
         yield conn
         conn.commit()
     except Exception:
@@ -369,3 +409,47 @@ def load_support_zones(
             )
         )
     return zones
+
+
+def _macro_events_to_json(report) -> str:
+    return json.dumps(
+        [
+            {"date": e.date.isoformat(), "kind": e.kind, "description": e.description}
+            for e in report.eventos_macro
+        ]
+    )
+
+
+def save_binary_events(
+    run_id: str,
+    final_candidates: list[FinalCandidate],
+    db_path: Path | None = None,
+) -> None:
+    """Actualiza las 11 columnas de eventos binarios en `candidates` para los tickers procesados.
+
+    Política "persistir todo": se actualiza incluso a candidatos que no pasaron el Paso 2.
+    Idempotente: re-correr con el mismo run_id sobrescribe los mismos valores (UPDATE por PK).
+    """
+    with _connect(db_path) as conn:
+        for fc in final_candidates:
+            be = fc.binary_events
+            conn.execute(
+                _UPDATE_BINARY_EVENTS_SQL,
+                (
+                    be.earnings_date.isoformat() if be.earnings_date is not None else None,
+                    be.dias_a_earnings,
+                    1 if be.earnings_en_45d else 0,
+                    be.ex_div_date.isoformat() if be.ex_div_date is not None else None,
+                    be.dias_a_ex_div,
+                    1 if be.ex_div_en_45d else 0,
+                    be.ex_div_amount,
+                    1 if be.eventos_macro_en_45d else 0,
+                    _macro_events_to_json(be),
+                    1 if be.tiene_eventos_binarios else 0,
+                    json.dumps(be.flags_legibles),
+                    run_id,
+                    fc.ticker,
+                ),
+            )
+
+    logger.info("Saved binary events for run %s: %d candidates", run_id, len(final_candidates))

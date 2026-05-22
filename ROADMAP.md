@@ -2,7 +2,7 @@
 
 > Documento vivo: estado actual, issues abiertos, próximos pasos. Actualizar al cierre de cada sesión.
 
-**Última actualización**: 2026-05-21
+**Última actualización**: 2026-05-22
 
 ---
 
@@ -55,6 +55,31 @@
 
 Pipeline end-to-end funcional: universe builder (985 tickers US+EU) → filtros del Paso 1 (calidad, valoración, momentum, HV) → clasificación T1-T4 → detección de soportes con confluencia de 7 elementos → eventos binarios (earnings, ex-dividend, macro) → reportes CSV+HTML + persistencia SQLite. Punto de entrada: `python -m puts_screener.run`.
 
+### Hardening yfinance + observabilidad ✅ (2026-05-22)
+
+Endurecimiento de la capa de data tras diagnosticar 55.8% de skip rate a universo completo (985):
+
+- [x] **fix(yfinance): blindar accesos frágiles a schema upstream** — `499e69a`. Try/except
+  defensivo en campos que yfinance puede cambiar de forma; preserva el skip cuando falta data crítica.
+- [x] **feat(logging): persistir logs a archivo en logs/** — `7bfe5f4`. FileHandler DEBUG (utf-8)
+  + consola INFO; captura yfinance/urllib3/requests. Habilita post-mortem por run. `logs/` en `.gitignore`.
+- [x] **feat(yfinance): retry con backoff exponencial para errores transitorios** — `88480a6`.
+  `_with_retry` intra-provider (max_attempts=3, base_delay=2.0, jitter ±25%) en los 4 métodos
+  críticos; reintenta solo 429/401/red, no schema.
+
+**Métricas empíricas (universo 985):**
+
+| Run | Estado | Skip rate | Wall-time |
+|---|---|---:|---:|
+| `cd0080c3` | baseline (pre-fixes) | 55.8% | ~32 min |
+| `7a41268c` | post defensive-fixes | 45.5% | ~17 min |
+| `cdaadca1` | post retry | **38.5%** | ~14 min |
+
+- Output del Paso 2 estabilizado en **~62 candidatos**: no se mueve aunque entre más data (el embudo
+  se angosta en gates de Paso 1 y en validez de soporte, no en cobertura de data).
+- Errores residuales: **80% `YFRateLimitError`** (transitorios, el retry los absorbe) / **20%
+  `TypeError` de schema** (no retriables — requieren más blindaje defensivo).
+
 ### Estadísticas
 
 - **Tests**: 315 verdes
@@ -66,7 +91,19 @@ Pipeline end-to-end funcional: universe builder (985 tickers US+EU) → filtros 
 
 ## 2. En vuelo (issues abiertos)
 
-Sin issues abiertos. Fase 1 completa, lista para validación empírica de Fase 1 entera y luego Fase 3 (GitHub Actions).
+**Rework del scoring de soportes** (prioridad alta) — el diagnóstico reveló un bug de polaridad y
+otros problemas estructurales (plan en §3.5). Es el próximo bloque de trabajo, antes de Fase 3.
+
+Diagnóstico (run `cdaadca1`, caso testigo RTX):
+- **Bug de polaridad confirmado**: elementos por encima del spot (hasta `spot×1.02`) entran al
+  clustering y suman al score como soporte. En RTX, 3 de 8 elementos de la best_zone eran overhead
+  (EMA200D@178.23, AVWAP_earnings@176.69, HVN@176.04; spot $175.98).
+- **Misnaming confirmado**: el elemento `sma_200d` en código es una EMA (`ewm(span=200)`), no SMA.
+  No existe una SMA200D real.
+- **Score sin ponderar**: conteo de categorías distintas con dedup (SMA200=2 pts, resto=1 pt).
+- **T1/T2/T3 es del candidato, no de la zona** (`classification.py`); las zonas solo tienen score numérico.
+- **`best_zone` se elige por `(-score, distance_pct)`**: favorece zonas donde el precio ya está parado.
+- **Fibs** bien calibrados (swing 252 ruedas) pero swings chicos en rango → fibs comprimidos / confluencia artificial.
 
 ---
 
@@ -115,6 +152,48 @@ Decisiones a tomar cuando arranque:
 - Persistir pivots detectados en SQLite (hoy se calculan al vuelo en Paso 2 pero no se persisten — necesarios para que los charts los muestren sin recálculo).
 
 Pre-requisito de data: la mayor parte de lo necesario ya existe (OHLCV en cache local, zonas en SQLite, elementos con metadata). Únicos gaps: pivots no persistidos y elementos del score sin tracking de fecha (algunos sí lo tienen vía metadata, otros no).
+
+### 3.5 Rework del scoring de soportes + segmentación de universos (prioridad alta)
+
+Backlog priorizado en este orden. La numeración "Etapa N" es interna a este plan (no confundir con
+las Fases de producto de §3.2–3.4).
+
+**Etapa 1 — Segmentación de universos**
+- Flag `--universe=sp500|nasdaq100|stoxx600` (default: `sp500`).
+- Composición desde listas oficiales actualizables.
+- Deduplicación si se combinan universos, con etiqueta por pertenencia.
+- Outputs separados por universo.
+- Objetivo: runs de validación en 6-8 min (solo S&P 500) en lugar de 14 min (985 tickers).
+
+**Etapa 2 — Fix de polaridad + pre-filtro + misnaming**
+- `_SPOT_UPPER_MARGIN` de 1.02 → 1.00 (solo niveles bajo el spot entran al clustering).
+- Campo `side` en `SupportLevel`: `support` / `resistance` / `neutral`.
+- Solo elementos `side=support` cuentan para el score.
+- Renombrar `sma_200d` → `ema_200d` en código y DB.
+- `ZONE_MIN_DISTANCE_PCT = 0.03`: zonas a menos del 3% del spot no son accionables para 30-45 DTE.
+
+**Etapa 3 — Agregar medias móviles**
+- SMA200D real (rolling mean diario, 200 velas).
+- SMA50D (rolling mean diario, 50 velas).
+- SMA50W (rolling mean semanal, 50 velas).
+- EMA50D (exponencial diario, span=50).
+
+**Etapa 4 — Ponderación y umbrales**
+- Pesos propuestos: SMA200D real 3.0 · SMA200W 3.0 · POLARIDAD 3.0 · EMA200D 2.5 · SMA50D 2.5 ·
+  AVWAP_pivot_low 2.5 · AVWAP_earnings 2.5 · 52-week low 2.0 · SMA50W 2.0 · HVN/POC 2.0 · EMA50D 1.5 ·
+  FIB_618 1.5 · GAP (no rellenado, >X%) 1.0.
+- DIVERGENCIA: sacar del score → mover a sección de señales de momentum.
+- FIB_786: sacar del score.
+- Umbrales (pendiente calibración post-implementación): requerir ≥2 elementos de peso ≥2.5 para
+  zona válida; recalibrar `SCORE_MIN_VALID` con el sistema ponderado.
+
+**Etapa 5 — Fibs con filtro de rango mínimo**
+- Requerir `swing_range > X%` del precio para computar FIB_618.
+- Objetivo: eliminar fibs de swings chicos en rango que generan confluencia artificial.
+
+**Etapa 6 (backlog) — Value Area Low (Volume Profile completo)**
+- Postergado para segunda iteración.
+- Reemplazar HVN genérico por POC real + VAL.
 
 ---
 

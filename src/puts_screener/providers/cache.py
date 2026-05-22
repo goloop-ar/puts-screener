@@ -20,6 +20,7 @@ TTL_HOURS = {
     "ratings": 24,
     "earnings": 24,
     "earnings_history": 24,
+    "ex_dividend": 24,
 }
 
 OHLCV_ROLLING_DAYS = 1500  # ~6 años hábiles, suficiente para SMA200W (200 semanas ≈ 1400 días)

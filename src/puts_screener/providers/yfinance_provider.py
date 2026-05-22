@@ -13,6 +13,7 @@ from .models import (
     AnalystData,
     CompanyProfile,
     EarningsEvent,
+    ExDividendEvent,
     FinancialSnapshot,
     HistoricalEarningsEvent,
     RatingChange,
@@ -82,6 +83,25 @@ def _earnings_from_cache(data: dict) -> EarningsEvent:
         eps_actual=data["eps_actual"],
         when=data["when"],
     )
+
+
+def _ex_dividend_from_cache(data: dict) -> ExDividendEvent:
+    return ExDividendEvent(
+        ticker=data["ticker"],
+        date=_parse_date(data["date"]),
+        amount=data["amount"],
+    )
+
+
+def _latest_dividend_amount(tk) -> float | None:
+    """Monto del dividendo más reciente desde `Ticker.dividends` (Series). None si no disponible."""
+    try:
+        dividends = tk.dividends
+    except Exception:  # noqa: BLE001 — yfinance puede tirar errores silenciosos
+        return None
+    if dividends is None or not hasattr(dividends, "empty") or dividends.empty:
+        return None
+    return _clean_float(dividends.iloc[-1])
 
 
 _ACTION_MAP = {
@@ -301,6 +321,41 @@ class YFinanceProvider(DataProvider):
         )
         write_cache("earnings", cache_key, dataclasses.asdict(event))
         return event
+
+    def get_upcoming_ex_dividend(
+        self, ticker: str, lookforward_days: int = 45
+    ) -> ExDividendEvent | None:
+        cache_key = f"yfinance_{ticker}"
+        cached = get_cached("ex_dividend", cache_key)
+        if cached is not None:
+            return _ex_dividend_from_cache(cached)
+
+        try:
+            tk = _get_ticker(to_yfinance(ticker))
+            calendar = tk.calendar or {}
+            raw_dates = calendar.get("Ex-Dividend Date")
+            if raw_dates is None:
+                return None
+            if not isinstance(raw_dates, list):
+                raw_dates = [raw_dates]
+
+            today = date.today()
+            horizon = today + timedelta(days=lookforward_days)
+            in_window = sorted(
+                parsed
+                for parsed in (_to_date(value) for value in raw_dates)
+                if parsed is not None and today <= parsed <= horizon
+            )
+            if not in_window:
+                return None
+
+            amount = _latest_dividend_amount(tk)
+            event = ExDividendEvent(ticker=ticker, date=in_window[0], amount=amount)
+            write_cache("ex_dividend", cache_key, dataclasses.asdict(event))
+            return event
+        except Exception as exc:  # noqa: BLE001 — coherente con manejo silencioso de yfinance
+            logger.warning("yfinance get_upcoming_ex_dividend failed for %s: %s", ticker, exc)
+            return None
 
     def get_analyst_data(self, ticker: str) -> AnalystData:
         cache_key = f"yfinance_{ticker}"

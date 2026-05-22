@@ -1,38 +1,82 @@
-# Calendario macro 2026 — eventos relevantes para SOP Paso 3.
+# Calendario macro 2026 - eventos relevantes para SOP Paso 3.
 # Mantenido manualmente. Actualizar cada noviembre para el año siguiente.
+#
 # Fuentes oficiales:
 #   - FOMC: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
 #   - CPI:  https://www.bls.gov/schedule/news_release/cpi.htm
-
-# IMPORTANTE: las fechas listadas abajo son PLACEHOLDERS para validar
-# que el parser funciona. El usuario va a reemplazarlas con fechas reales
-# antes de la primera corrida productiva. Buscar en las fuentes citadas arriba.
+#
+# Las fechas de FOMC corresponden al segundo día de la reunión (cuando se publica
+# statement + press conference). El primer día de cada reunión no se incluye porque
+# no hay anuncio de prensa que mueva el mercado.
+#
+# Las fechas de CPI son las publicadas oficialmente por BLS a las 8:30 AM ET.
+#
+# Notas:
+# - CPI febrero 2026: rescheduled del 11 al 13 por delay del shutdown 2025.
+# - Todas las fechas de FOMC son verificadas contra federalreserve.gov.
+# - Todas las fechas de CPI son verificadas contra bls.gov + White House PFEI calendar 2026.
 
 events:
+  # ──────────────────── FOMC 2026 ────────────────────
   - date: 2026-01-28
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
-  - date: 2026-02-11
-    kind: cpi
-    description: "CPI release - January 2026 data (PLACEHOLDER)"
+    description: "FOMC meeting - January 27-28 (statement + press conference day 2)"
   - date: 2026-03-18
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+    description: "FOMC meeting - March 17-18 (statement + economic projections)"
   - date: 2026-04-29
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+    description: "FOMC meeting - April 28-29 (statement + press conference day 2)"
   - date: 2026-06-17
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+    description: "FOMC meeting - June 16-17 (statement + economic projections)"
   - date: 2026-07-29
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+    description: "FOMC meeting - July 28-29 (statement + press conference day 2)"
   - date: 2026-09-16
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
-  - date: 2026-11-04
+    description: "FOMC meeting - September 15-16 (statement + economic projections)"
+  - date: 2026-10-28
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
-  - date: 2026-12-16
+    description: "FOMC meeting - October 27-28 (statement + press conference day 2)"
+  - date: 2026-12-09
     kind: fomc
-    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+    description: "FOMC meeting - December 8-9 (statement + economic projections)"
+
+  # ──────────────────── CPI 2026 ────────────────────
+  - date: 2026-01-13
+    kind: cpi
+    description: "CPI release - December 2025 data (8:30 AM ET)"
+  - date: 2026-02-13
+    kind: cpi
+    description: "CPI release - January 2026 data (rescheduled from Feb 11 due to 2025 shutdown delay)"
+  - date: 2026-03-11
+    kind: cpi
+    description: "CPI release - February 2026 data (8:30 AM ET)"
+  - date: 2026-04-10
+    kind: cpi
+    description: "CPI release - March 2026 data (8:30 AM ET)"
+  - date: 2026-05-12
+    kind: cpi
+    description: "CPI release - April 2026 data (8:30 AM ET)"
+  - date: 2026-06-10
+    kind: cpi
+    description: "CPI release - May 2026 data (8:30 AM ET)"
+  - date: 2026-07-14
+    kind: cpi
+    description: "CPI release - June 2026 data (8:30 AM ET)"
+  - date: 2026-08-12
+    kind: cpi
+    description: "CPI release - July 2026 data (8:30 AM ET)"
+  - date: 2026-09-11
+    kind: cpi
+    description: "CPI release - August 2026 data (8:30 AM ET)"
+  - date: 2026-10-14
+    kind: cpi
+    description: "CPI release - September 2026 data (8:30 AM ET)"
+  - date: 2026-11-10
+    kind: cpi
+    description: "CPI release - October 2026 data (8:30 AM ET)"
+  - date: 2026-12-10
+    kind: cpi
+    description: "CPI release - November 2026 data (8:30 AM ET)"

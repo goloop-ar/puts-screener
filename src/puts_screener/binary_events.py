@@ -9,7 +9,11 @@ import logging
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from puts_screener.config_reports import EARNINGS_WINDOW_DAYS, MACRO_WINDOW_DAYS
+from puts_screener.config_reports import (
+    EARNINGS_WINDOW_DAYS,
+    EX_DIV_WINDOW_DAYS,
+    MACRO_WINDOW_DAYS,
+)
 from puts_screener.macro_calendar import MacroEvent
 from puts_screener.providers.service import DataService
 
@@ -76,11 +80,20 @@ def check_binary_events(
         earnings_en_45d = 0 <= dias_a_earnings <= EARNINGS_WINDOW_DAYS
 
     # --- Ex-dividend ---
-    # TODO: implementar get_upcoming_ex_dividend en YFinanceProvider — tanda siguiente
     ex_div_date: date | None = None
     dias_a_ex_div: int | None = None
     ex_div_en_45d = False
     ex_div_amount: float | None = None
+    try:
+        ex_div = data_service.get_upcoming_ex_dividend(ticker, lookforward_days=EX_DIV_WINDOW_DAYS)
+    except Exception as exc:  # noqa: BLE001 — aislamiento por evento, no se propaga
+        logger.warning("[%s] get_upcoming_ex_dividend failed: %s", ticker, exc)
+        ex_div = None
+    if ex_div is not None:
+        ex_div_date = ex_div.date
+        dias_a_ex_div = (ex_div.date - today).days
+        ex_div_en_45d = 0 <= dias_a_ex_div <= EX_DIV_WINDOW_DAYS
+        ex_div_amount = ex_div.amount
 
     # --- Macro ---
     eventos_macro = check_macro_events(today, macro_calendar)

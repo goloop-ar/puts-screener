@@ -15,7 +15,11 @@ SECTORS_FCF_FILTER_EXEMPT: set[str] = {"Utilities", "Financial Services", "Real 
 
 # === Filtros de valoración ===
 MIN_PRICE_TARGET_UPSIDE: float = 0.0
-MIN_RECOMMENDATION_BUY_RATIO: float = 0.5
+# Bajado de 0.5 a 0.45 (issue 2.5, 2026-05-21): 8 candidatos near-miss en [0.45, 0.5) con upside
+# positivo (BP.L +10.8% buy 0.47, CHD +6.3% buy 0.48, etc.) fallaban por 0.02-0.03 puntos. El SOP
+# dice "mayoría Buy"; 0.45 sigue siendo ligera mayoría (45% Buy vs 55% Hold/Sell). Los 36 con
+# buy_ratio <0.3 siguen filtrados como rechazos legítimos.
+MIN_RECOMMENDATION_BUY_RATIO: float = 0.45
 # Subido de 0 a 1 (issue 2.5, 2026-05-21): un único downgrade en un nombre con consenso fuerte de
 # compra (ADSK 0.91, CI 0.88, AMAT 0.79, BKR 0.73 fueron rechazados por 1 solo downgrade) es ruido
 # institucional, no señal. El SOP dice "sin downgrades significativos"; 2+ ya es patrón filtrable.

@@ -55,6 +55,23 @@
 
 Pipeline end-to-end funcional: universe builder (985 tickers US+EU) → filtros del Paso 1 (calidad, valoración, momentum, HV) → clasificación T1-T4 → detección de soportes con confluencia de 7 elementos → eventos binarios (earnings, ex-dividend, macro) → reportes CSV+HTML + persistencia SQLite. Punto de entrada: `python -m puts_screener.run`.
 
+### Etapa 1 del rework de scoring (ROADMAP §3.5) ✅ Cerrada (2026-05-22)
+
+Segmentación de universos: tres universos predefinidos (`sp500`, `nasdaq100`, `stoxx600`) con dedup interno y tag por pertenencia.
+
+- [x] Nuevo fetcher `_fetch_nasdaq100` desde Wikipedia.
+- [x] `build_universe` refactorizado: ahora recibe `list[str]` de universos y devuelve `dict[str, set[str]]` (ticker → set de universos a los que pertenece).
+- [x] Modelo: `ScreenedCandidate.universes: tuple[str, ...]` propagado por todo el pipeline.
+- [x] Persistencia: columnas nuevas `candidates.universes_json` y `runs.universes_json` con migración idempotente.
+- [x] CLI: flag `--universe` (default `sp500`), acepta CSV (ej. `--universe sp500,nasdaq100`).
+- [x] Reportes: CSV columna 40 `universes` (pipe-separated, ordenada alfabéticamente). HTML con badges grises al lado del ticker.
+- [x] 27 tests nuevos (342 verdes totales). Commit `84cfe90`.
+- [x] Validación funcional con `--limit 50`:
+  - `--universe sp500` → 503 tickers, 8 candidatos finales, todos taggeados `sp500`.
+  - `--universe sp500,nasdaq100` → **516 tickers únicos** (dedup verificado: no son 603), 8 candidatos finales con mezcla correcta: `nasdaq100|sp500` (APP, ABNB, AMAT), `nasdaq100` solo (ALNY), `sp500` solo (ACGL, APO, ALL, ABBV).
+
+Output del run rápido SP500-only ahora en ~12s (vs ~14 min del universo completo). Habilita iteración rápida del refactor de scoring siguiente.
+
 ### Hardening yfinance + observabilidad ✅ (2026-05-22)
 
 Endurecimiento de la capa de data tras diagnosticar 55.8% de skip rate a universo completo (985):
@@ -158,7 +175,7 @@ Pre-requisito de data: la mayor parte de lo necesario ya existe (OHLCV en cache 
 Backlog priorizado en este orden. La numeración "Etapa N" es interna a este plan (no confundir con
 las Fases de producto de §3.2–3.4).
 
-**Etapa 1 — Segmentación de universos**
+**Etapa 1 — Segmentación de universos** ✅ Cerrada (2026-05-22, commit `84cfe90`).
 - Flag `--universe=sp500|nasdaq100|stoxx600` (default: `sp500`).
 - Composición desde listas oficiales actualizables.
 - Deduplicación si se combinan universos, con etiqueta por pertenencia.
@@ -216,6 +233,8 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Paso 3 corre sobre todos los Paso-1-passers, no solo Paso-2-passers (decisión de implementación spec 04 vs spec original)**: la spec §9 decía `pasa_paso_2=True` como condición para correr Paso 3; en implementación se cambió a correr sobre todos los Paso-1-passers para tener flags binarios incluso de candidatos sin soporte fuerte. Esto es información útil para el humano. Si en algún momento se quiere optimizar costo, este es un knob para apagar.
 - **`ex_div_amount` aproximado desde `Ticker.dividends.iloc[-1]` (yfinance)**: el calendar de yfinance trae la fecha ex-dividend pero no el amount, así que se infiere del dividendo más reciente histórico. Asunción: el próximo ex-div pagará un monto similar al último. Generalmente cierto para blue chips, pero puede fallar en empresas con cambios de política de dividendos.
 - **Encoding Windows cp1252 en stdout**: caracteres acentuados (e.g. 'días') aparecen como mojibake en consola Windows. Los archivos CSV/HTML quedan en UTF-8 correctamente. Solo afecta display de consola, no datos. Si molesta, se puede forzar UTF-8 en stdout con `sys.stdout.reconfigure(encoding='utf-8')` al inicio de `run.py`.
+- **Endurecer firma de `run_screening` / `run_final_pipeline` (dict-only)**: hoy aceptan `list[str] | dict[str,set]` por backward-compat con smoke tests y stubs. El path de producción (`run.py`) pasa el dict y todo funciona, pero un caller futuro que pase lista heredaría `universes=()` silenciosamente. Bajo riesgo (un solo caller productivo), pero conviene endurecer cuando alguna spec posterior toque esos modules.
+- **Threshold `ZONE_MIN_DISTANCE_PCT=0.03` en Etapa 2 — observación previa**: el run de validación de Etapa 1 mostró que 2 de 8 candidatos finales (APP 2.6%, ABNB borderline 3.5%) están cerca o debajo del threshold planificado. Si Etapa 2 lo implementa tal cual, podríamos perder ~25% del output. Validar empíricamente post-implementación; si el output queda muy seco, considerar bajar a 0.02 o 0.015.
 
 ---
 
@@ -245,6 +264,8 @@ Para no buscarlas en specs:
 - **2026-05-21 — Spec 04, `ex_div_amount` aproximado**: el calendar de yfinance no trae amount; se aproxima desde `dividends.iloc[-1]` (último dividendo histórico). Trade-off aceptable para MVP; refinable en Fase 4 con providers de opciones.
 - **2026-05-21 — Issue 2.5 cerrado, `MAX_DOWNGRADES_6W` subido de 0 a 1**: la caracterización empírica de `filter_valuation` sobre 200 tickers mostró que 4 de 5 rechazos exclusivos por downgrades eran blue chips con consenso fuerte de compra (ADSK 0.91 buy, CI 0.88, AMAT 0.79, BKR 0.73) rechazados por un único downgrade. El SOP dice "sin downgrades significativos"; un downgrade aislado es ruido institucional. 2+ downgrades sigue siendo patrón filtrable. Reduce además el sesgo US/EU (EU exento del chequeo por falta de data en yfinance).
 - **2026-05-21 — Issue 2.5 cerrado, `MIN_RECOMMENDATION_BUY_RATIO` bajado de 0.5 a 0.45**: 8 candidatos near-miss en [0.45, 0.5) con upside positivo (BP.L +10.8% buy 0.47, CHD +6.3% buy 0.48, etc.) fallaban por 0.02-0.03 puntos. El SOP exige "mayoría Buy"; 0.45 sigue siendo ligera mayoría (45% Buy vs 55% Hold/Sell). Los 36 candidatos con buy_ratio <0.3 siguen filtrados como rechazos legítimos.
+- **2026-05-22 — Etapa 1 cerrada con `list | dict` en pipelines (no dict-only puro)**: la spec original decía "recibe el dict y pasa el tag", pero 8+ callers existentes (smoke tests + tests de pipeline) pasan listas y la spec no los listaba para actualizar. Decisión pragmática: `run_screening` y `run_final_pipeline` aceptan ambos; si llega dict, derivan tags; si llega lista, `universes=()`. `run.py` siempre pasa dict, así que producción siempre etiqueta. Endurecimiento a dict-only queda en backlog (§4) para una iteración futura cuando se justifique tocar esos modules por otra razón.
+- **2026-05-22 — Caches de universo gitignored (sp500.json, nasdaq100.json, stoxx600.json)**: los tres son regenerables vía `build_universe(..., refresh=True)` (Wikipedia es estable y el fetch toma segundos). No se commitean porque (a) tienen TTL de 7 días y se desactualizan, (b) son derivables del código sin pérdida, (c) gitignored es el patrón estándar para caches. Inconsistencia previa (suponer que sp500/stoxx600 estaban commiteados) corregida sin commitear nada nuevo.
 
 ---
 

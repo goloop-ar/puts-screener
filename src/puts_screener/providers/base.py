@@ -9,6 +9,7 @@ from .models import (
     AnalystData,
     CompanyProfile,
     EarningsEvent,
+    ExDividendEvent,
     FinancialSnapshot,
     HistoricalEarningsEvent,
     RatingChange,
@@ -32,6 +33,7 @@ _PROVIDER_METHODS = frozenset(
         "get_rating_changes",
         "get_upcoming_earnings",
         "get_historical_earnings",
+        "get_upcoming_ex_dividend",
     }
 )
 
@@ -69,6 +71,11 @@ class DataProvider(ABC):  # noqa: B024
         self, ticker: str, lookback_days: int = 365
     ) -> list[HistoricalEarningsEvent]:
         raise NotSupportedError(f"{self.name} no soporta get_historical_earnings")
+
+    def get_upcoming_ex_dividend(
+        self, ticker: str, lookforward_days: int = 45
+    ) -> ExDividendEvent | None:
+        raise NotSupportedError(f"{self.name} no soporta get_upcoming_ex_dividend")
 
     def supports(self, method_name: str) -> bool:
         """Devuelve True si la subclase overridea `method_name`.

@@ -266,16 +266,20 @@ class YFinanceProvider(DataProvider):
         if cached is not None:
             return _financials_from_cache(cached)
 
-        tk = _get_ticker(to_yfinance(ticker))
-        cashflow = tk.cashflow
-        fcf = _extract_row_latest(cashflow, "Free Cash Flow")
-        if fcf is None:
-            fcf = _extract_row_latest(getattr(tk, "cash_flow", None), "Free Cash Flow")
-        financials = tk.financials
-        revenue = _extract_row_latest(financials, "Total Revenue")
-        fiscal_year_end = _latest_column_date(cashflow)
-        if fiscal_year_end is None:
-            fiscal_year_end = _latest_column_date(financials)
+        try:
+            tk = _get_ticker(to_yfinance(ticker))
+            cashflow = tk.cashflow
+            fcf = _extract_row_latest(cashflow, "Free Cash Flow")
+            if fcf is None:
+                fcf = _extract_row_latest(getattr(tk, "cash_flow", None), "Free Cash Flow")
+            financials = tk.financials
+            revenue = _extract_row_latest(financials, "Total Revenue")
+            fiscal_year_end = _latest_column_date(cashflow)
+            if fiscal_year_end is None:
+                fiscal_year_end = _latest_column_date(financials)
+        except Exception as exc:
+            logger.warning("yfinance get_financials failed for %s: %s", ticker, exc)
+            raise ProviderError(f"yfinance get_financials failed for {ticker}: {exc}") from exc
 
         snapshot = FinancialSnapshot(
             ticker=ticker,
@@ -295,7 +299,11 @@ class YFinanceProvider(DataProvider):
         if cached is not None:
             return _earnings_from_cache(cached)
 
-        calendar = _get_ticker(to_yfinance(ticker)).calendar or {}
+        try:
+            calendar = _get_ticker(to_yfinance(ticker)).calendar or {}
+        except Exception as exc:  # noqa: BLE001 — yfinance frágil a cambios de schema
+            logger.warning("yfinance get_upcoming_earnings failed for %s: %s", ticker, exc)
+            return None
         raw_dates = calendar.get("Earnings Date")
         if raw_dates is None:
             return None
@@ -428,7 +436,11 @@ class YFinanceProvider(DataProvider):
         if cached is not None:
             return _historical_earnings_from_cache(cached)
 
-        df = _get_ticker(to_yfinance(ticker)).earnings_dates
+        try:
+            df = _get_ticker(to_yfinance(ticker)).earnings_dates
+        except Exception as exc:  # noqa: BLE001 — yfinance frágil a cambios de schema
+            logger.warning("yfinance get_historical_earnings failed for %s: %s", ticker, exc)
+            return []
         if df is None or not hasattr(df, "empty") or df.empty:
             return []
 

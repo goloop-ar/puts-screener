@@ -94,6 +94,15 @@ def test_get_financials_missing_fcf(tmp_cache_root, monkeypatch):
     assert snap.total_revenue_ttm == 383285000000.0
 
 
+def test_get_financials_raises_provider_error_on_yfinance_failure(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    type(tk).cashflow = PropertyMock(side_effect=RuntimeError("yf schema boom"))
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    with pytest.raises(ProviderError):
+        provider.get_financials("AAPL")
+
+
 def test_get_upcoming_earnings_in_window(tmp_cache_root, monkeypatch):
     upcoming = date.today() + timedelta(days=10)
     tk = MagicMock()

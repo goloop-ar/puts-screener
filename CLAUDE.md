@@ -2,6 +2,22 @@
 
 > Este archivo te da el contexto del proyecto. Leelo siempre antes de empezar cualquier tarea.
 
+## Colaboración con Claude (chat) sobre este repo
+
+Estas reglas aplican a **Claude (chat)** (la instancia web/mobile con la que colaboro fuera de
+Claude Code), no a Claude Code.
+
+1. **No inferir estructura del repo.** Cuando Claude (chat) tenga dudas sobre cómo está
+   estructurado el código, qué archivos existen, dónde vive una función, o cualquier detalle del
+   filesystem, no debe adivinar ni asumir. Debe pedirme que le consulte a Claude Code,
+   entregándome un prompt listo para que yo se lo pase.
+2. **Siempre entregar prompts copy-paste.** Cuando Claude (chat) necesite que yo le pase algo a
+   Claude Code (consultas, instrucciones, pedidos de código), debe darme el prompt ya redactado,
+   listo para copiar y pegar; nunca pedirme que lo escriba yo a mano. El prompt debe venir
+   **dentro de un bloque de código** (triple backtick), no como texto plano en el cuerpo del
+   mensaje, para que se copie con un solo click desde el botón de copiar del bloque y no requiera
+   selección manual de texto.
+
 ## Antes de cualquier trabajo
 
 1. Leé `SPEC.md` para entender visión, scope, output esperado y vocabulario.

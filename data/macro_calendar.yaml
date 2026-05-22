@@ -1,0 +1,38 @@
+# Calendario macro 2026 — eventos relevantes para SOP Paso 3.
+# Mantenido manualmente. Actualizar cada noviembre para el año siguiente.
+# Fuentes oficiales:
+#   - FOMC: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+#   - CPI:  https://www.bls.gov/schedule/news_release/cpi.htm
+
+# IMPORTANTE: las fechas listadas abajo son PLACEHOLDERS para validar
+# que el parser funciona. El usuario va a reemplazarlas con fechas reales
+# antes de la primera corrida productiva. Buscar en las fuentes citadas arriba.
+
+events:
+  - date: 2026-01-28
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+  - date: 2026-02-11
+    kind: cpi
+    description: "CPI release - January 2026 data (PLACEHOLDER)"
+  - date: 2026-03-18
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+  - date: 2026-04-29
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+  - date: 2026-06-17
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+  - date: 2026-07-29
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+  - date: 2026-09-16
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+  - date: 2026-11-04
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"
+  - date: 2026-12-16
+    kind: fomc
+    description: "FOMC Statement and Press Conference (PLACEHOLDER)"

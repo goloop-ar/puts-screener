@@ -7,7 +7,11 @@ import pytest
 from puts_screener.providers.base import DataProvider, NotSupportedError, ProviderError
 from puts_screener.providers.factory import build_default_data_service
 from puts_screener.providers.finnhub_provider import FinnhubProvider
-from puts_screener.providers.models import EarningsEvent, HistoricalEarningsEvent
+from puts_screener.providers.models import (
+    EarningsEvent,
+    ExDividendEvent,
+    HistoricalEarningsEvent,
+)
 from puts_screener.providers.service import AllProvidersFailedError, DataService
 from puts_screener.providers.yfinance_provider import YFinanceProvider
 
@@ -37,6 +41,7 @@ class FakeProvider(DataProvider):
         rating=None,
         earnings=None,
         historical=None,
+        ex_div=None,
     ):
         self.name = name
         self._results = {
@@ -47,6 +52,7 @@ class FakeProvider(DataProvider):
             "get_rating_changes": rating,
             "get_upcoming_earnings": earnings,
             "get_historical_earnings": historical,
+            "get_upcoming_ex_dividend": ex_div,
         }
         self.call_log: list[str] = []
 
@@ -87,6 +93,9 @@ class FakeProvider(DataProvider):
     def get_historical_earnings(self, ticker, lookback_days=365):
         return self._serve("get_historical_earnings")
 
+    def get_upcoming_ex_dividend(self, ticker, lookforward_days=45):
+        return self._serve("get_upcoming_ex_dividend")
+
 
 def _service(**kwargs) -> DataService:
     defaults = {
@@ -97,6 +106,7 @@ def _service(**kwargs) -> DataService:
         "rating_providers": [],
         "earnings_providers": [],
         "historical_earnings_providers": [],
+        "ex_div_providers": [],
     }
     defaults.update(kwargs)
     return DataService(**defaults)
@@ -122,6 +132,10 @@ def _hist_event() -> HistoricalEarningsEvent:
         revenue_estimate=None,
         revenue_actual=None,
     )
+
+
+def _ex_div_event() -> ExDividendEvent:
+    return ExDividendEvent(ticker="AAPL", date=date(2024, 2, 15), amount=0.5)
 
 
 def test_first_success_skips_rest():
@@ -218,6 +232,7 @@ def test_factory_builds_service_with_correct_types():
     assert isinstance(svc._earnings[0], YFinanceProvider)
     assert isinstance(svc._earnings[1], FinnhubProvider)
     assert [type(p) for p in svc._historical_earnings] == [YFinanceProvider]
+    assert [type(p) for p in svc._ex_div] == [YFinanceProvider]
 
 
 def test_historical_earnings_empty_is_success():
@@ -228,6 +243,22 @@ def test_historical_earnings_empty_is_success():
     assert result == []
     assert first.call_log == ["get_historical_earnings"]
     assert second.call_log == []
+
+
+def test_ex_dividend_propagates_value():
+    yf_fake = FakeProvider("yf", ex_div=_ex_div_event())
+    svc = _service(ex_div_providers=[yf_fake])
+    result = svc.get_upcoming_ex_dividend("AAPL")
+    assert result is not None
+    assert result.amount == 0.5
+    assert yf_fake.call_log == ["get_upcoming_ex_dividend"]
+
+
+def test_ex_dividend_not_supported_raises():
+    yf_fake = FakeProvider("yf", ex_div=_NOT_SUPPORTED)
+    svc = _service(ex_div_providers=[yf_fake])
+    with pytest.raises(AllProvidersFailedError):
+        svc.get_upcoming_ex_dividend("AAPL")
 
 
 def test_logging_warning_then_info(caplog):

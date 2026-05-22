@@ -7,6 +7,7 @@ from puts_screener.providers.models import (
     AnalystData,
     CompanyProfile,
     EarningsEvent,
+    ExDividendEvent,
     FinancialSnapshot,
     RatingChange,
 )
@@ -94,3 +95,16 @@ def test_earnings_event_fields():
     )
     assert event.when == "amc"
     assert event.eps_estimate == 1.5
+
+
+def test_ex_dividend_event_fields():
+    event = ExDividendEvent(ticker="AAPL", date=date(2024, 2, 1), amount=0.24)
+    assert event.ticker == "AAPL"
+    assert event.date == date(2024, 2, 1)
+    assert event.amount == 0.24
+
+
+def test_ex_dividend_event_is_frozen():
+    event = ExDividendEvent(ticker="AAPL", date=date(2024, 2, 1), amount=None)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        event.ticker = "MSFT"

@@ -1,7 +1,7 @@
 import json
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, PropertyMock
 
 import pandas as pd
 import pytest
@@ -112,6 +112,58 @@ def test_get_upcoming_earnings_out_of_window(tmp_cache_root, monkeypatch):
     _mock_ticker(monkeypatch, tk)
     provider = YFinanceProvider()
     assert provider.get_upcoming_earnings("AAPL", lookforward_days=60) is None
+
+
+def test_get_upcoming_ex_dividend_in_window(tmp_cache_root, monkeypatch):
+    upcoming = date.today() + timedelta(days=8)
+    tk = MagicMock()
+    tk.calendar = {"Ex-Dividend Date": upcoming}
+    tk.dividends = pd.Series([0.24, 0.25], index=pd.to_datetime(["2025-11-01", "2026-02-01"]))
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    event = provider.get_upcoming_ex_dividend("AAPL", lookforward_days=45)
+    assert event is not None
+    assert event.date == upcoming
+    assert event.amount == 0.25
+
+
+def test_get_upcoming_ex_dividend_out_of_window(tmp_cache_root, monkeypatch):
+    far = date.today() + timedelta(days=400)
+    tk = MagicMock()
+    tk.calendar = {"Ex-Dividend Date": far}
+    tk.dividends = pd.Series([0.25], index=pd.to_datetime(["2026-02-01"]))
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    assert provider.get_upcoming_ex_dividend("AAPL", lookforward_days=45) is None
+
+
+def test_get_upcoming_ex_dividend_empty_calendar(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    tk.calendar = {}
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    assert provider.get_upcoming_ex_dividend("AAPL") is None
+
+
+def test_get_upcoming_ex_dividend_calendar_raises_returns_none(tmp_cache_root, monkeypatch):
+    tk = MagicMock()
+    type(tk).calendar = PropertyMock(side_effect=RuntimeError("yf boom"))
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    assert provider.get_upcoming_ex_dividend("AAPL") is None
+
+
+def test_ex_dividend_cache_hit_skips_ticker(tmp_cache_root, monkeypatch):
+    cached = {"ticker": "AAPL", "date": "2026-02-01", "amount": 0.25}
+    cache.write_cache("ex_dividend", "yfinance_AAPL", cached)
+    mock_get = MagicMock()
+    monkeypatch.setattr(yfinance_provider, "_get_ticker", mock_get)
+    provider = YFinanceProvider()
+    event = provider.get_upcoming_ex_dividend("AAPL")
+    assert event is not None
+    assert event.date == date(2026, 2, 1)
+    assert event.amount == 0.25
+    mock_get.assert_not_called()
 
 
 def test_ohlcv_cache_hit_skips_ticker(tmp_cache_root, sample_ohlcv_df, monkeypatch):

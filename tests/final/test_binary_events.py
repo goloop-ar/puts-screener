@@ -5,23 +5,30 @@ from pathlib import Path
 
 from puts_screener.binary_events import check_binary_events, check_macro_events
 from puts_screener.macro_calendar import MacroEvent, load_macro_calendar
-from puts_screener.providers.models import EarningsEvent
+from puts_screener.providers.models import EarningsEvent, ExDividendEvent
 
 _REAL_CALENDAR = Path(__file__).resolve().parents[2] / "data" / "macro_calendar.yaml"
 _TODAY = date(2026, 5, 21)
 
 
 class _FakeDataService:
-    """Stub mínimo con la única firma que usa check_binary_events (duck typing)."""
+    """Stub mínimo con las firmas que usa check_binary_events (duck typing)."""
 
-    def __init__(self, earnings=None, raises=False):
+    def __init__(self, earnings=None, raises=False, ex_div=None, ex_div_raises=False):
         self._earnings = earnings
         self._raises = raises
+        self._ex_div = ex_div
+        self._ex_div_raises = ex_div_raises
 
     def get_upcoming_earnings(self, ticker, lookforward_days=60):
         if self._raises:
             raise RuntimeError("provider boom")
         return self._earnings
+
+    def get_upcoming_ex_dividend(self, ticker, lookforward_days=45):
+        if self._ex_div_raises:
+            raise RuntimeError("ex-div boom")
+        return self._ex_div
 
 
 def _earnings(days_ahead: int) -> EarningsEvent:
@@ -32,6 +39,10 @@ def _earnings(days_ahead: int) -> EarningsEvent:
         eps_actual=None,
         when=None,
     )
+
+
+def _ex_div(days_ahead: int, amount=None) -> ExDividendEvent:
+    return ExDividendEvent(ticker="X", date=_TODAY + timedelta(days=days_ahead), amount=amount)
 
 
 # --- check_macro_events ---
@@ -95,14 +106,40 @@ def test_no_events_means_no_binary_events():
     assert report.eventos_macro == []
 
 
-def test_ex_dividend_is_stubbed_none():
-    """El stub de ex-dividend deja todos los campos en None/False (tanda siguiente)."""
-    ds = _FakeDataService(earnings=None)
+def test_ex_dividend_in_window_with_amount():
+    ds = _FakeDataService(ex_div=_ex_div(8, amount=0.50))
+    report = check_binary_events("X", _TODAY, ds, macro_calendar=[])
+    assert report.ex_div_en_45d is True
+    assert report.dias_a_ex_div == 8
+    assert report.ex_div_amount == 0.50
+    assert report.ex_div_date == _TODAY + timedelta(days=8)
+    assert "Ex-dividend en 8 días ($0.50)" in report.flags_legibles
+    assert report.tiene_eventos_binarios is True
+
+
+def test_ex_dividend_in_window_without_amount():
+    ds = _FakeDataService(ex_div=_ex_div(5, amount=None))
+    report = check_binary_events("X", _TODAY, ds, macro_calendar=[])
+    assert report.ex_div_en_45d is True
+    assert report.ex_div_amount is None
+    assert "Ex-dividend en 5 días" in report.flags_legibles
+
+
+def test_ex_dividend_none_leaves_fields_empty():
+    ds = _FakeDataService(ex_div=None)
     report = check_binary_events("X", _TODAY, ds, macro_calendar=[])
     assert report.ex_div_date is None
     assert report.dias_a_ex_div is None
     assert report.ex_div_en_45d is False
     assert report.ex_div_amount is None
+
+
+def test_ex_dividend_provider_exception_isolated():
+    ds = _FakeDataService(ex_div_raises=True)
+    report = check_binary_events("X", _TODAY, ds, macro_calendar=[])
+    assert report.ex_div_date is None
+    assert report.ex_div_en_45d is False
+    assert report.tiene_eventos_binarios is False
 
 
 def test_macro_in_window_adds_flag():
@@ -114,13 +151,14 @@ def test_macro_in_window_adds_flag():
     assert "Evento macro: fomc en 5 días (FOMC)" in report.flags_legibles
 
 
-def test_flags_order_earnings_before_macro():
-    """Orden de severidad: earnings primero, macro al final (ex_div stubeado → ausente)."""
-    ds = _FakeDataService(earnings=_earnings(10))
+def test_flags_order_earnings_exdiv_macro():
+    """Orden de severidad con los tres activos: earnings → ex_div → macro."""
+    ds = _FakeDataService(earnings=_earnings(10), ex_div=_ex_div(8, amount=0.50))
     calendar = [MacroEvent(date=_TODAY + timedelta(days=5), kind="cpi", description="CPI")]
     report = check_binary_events("X", _TODAY, ds, macro_calendar=calendar)
 
-    assert report.flags_legibles[0].startswith("Earnings en")
-    macro_idx = next(i for i, f in enumerate(report.flags_legibles) if f.startswith("Evento macro"))
-    assert macro_idx > 0
-    assert not any("Ex-dividend" in f for f in report.flags_legibles)
+    flags = report.flags_legibles
+    assert len(flags) == 3
+    assert flags[0].startswith("Earnings en")
+    assert flags[1].startswith("Ex-dividend en")
+    assert flags[2].startswith("Evento macro")

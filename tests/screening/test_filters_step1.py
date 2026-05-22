@@ -105,6 +105,36 @@ def test_filter_valuation_fails_downgrades_for_us(neutral_candidate):
     assert "downgrades" in reason
 
 
+def test_filter_valuation_passes_single_downgrade(neutral_candidate):
+    """1 downgrade (US) ahora PASA — umbral subido de 0 a 1 (issue 2.5)."""
+    _with_profile(neutral_candidate, country="United States")
+    neutral_candidate.downgrades_6w_count = 1
+    assert filter_valuation(neutral_candidate) == (True, None)
+
+
+def test_filter_valuation_fails_two_downgrades(neutral_candidate):
+    """2 downgrades (US) sigue fallando — el umbral sigue activo para 2+."""
+    _with_profile(neutral_candidate, country="United States")
+    neutral_candidate.downgrades_6w_count = 2
+    passes, reason = filter_valuation(neutral_candidate)
+    assert passes is False
+    assert "downgrades" in reason
+
+
+def test_filter_valuation_passes_buy_ratio_046(neutral_candidate):
+    """buy_ratio 0.46 ahora PASA — umbral bajado de 0.5 a 0.45 (issue 2.5)."""
+    neutral_candidate.recommendation_buy_ratio = 0.46
+    assert filter_valuation(neutral_candidate) == (True, None)
+
+
+def test_filter_valuation_fails_buy_ratio_044(neutral_candidate):
+    """buy_ratio 0.44 sigue fallando — el umbral sigue activo para <0.45."""
+    neutral_candidate.recommendation_buy_ratio = 0.44
+    passes, reason = filter_valuation(neutral_candidate)
+    assert passes is False
+    assert "buy ratio" in reason
+
+
 # --- momentum (gate de sobrecompra) ---
 
 

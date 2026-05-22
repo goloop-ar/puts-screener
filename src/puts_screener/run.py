@@ -4,15 +4,18 @@ Uso:
     python -m puts_screener.run
     python -m puts_screener.run --no-persist
     python -m puts_screener.run --refresh-universe
+    python -m puts_screener.run --skip-reports
+    python -m puts_screener.run --macro-calendar path/to/calendar.yaml
 """
 
 import argparse
 import logging
 import sys
+from pathlib import Path
 
+from puts_screener.final_pipeline import run_final_pipeline
 from puts_screener.providers.factory import build_default_data_service
 from puts_screener.screening_pipeline import run_screening
-from puts_screener.support_pipeline import run_support_detection
 from puts_screener.universe_builder import build_universe
 
 
@@ -29,7 +32,16 @@ def main() -> int:
     parser.add_argument(
         "--skip-support-detection",
         action="store_true",
-        help="Skip Paso 2 (support detection); run only Paso 1 filters",
+        help="Run only Paso 1 (no Paso 2/3 ni reportes)",
+    )
+    parser.add_argument(
+        "--skip-reports", action="store_true", help="Don't generate CSV/HTML reports"
+    )
+    parser.add_argument(
+        "--macro-calendar",
+        type=str,
+        default="data/macro_calendar.yaml",
+        help="Path to the macro calendar YAML",
     )
     args = parser.parse_args()
 
@@ -49,28 +61,23 @@ def main() -> int:
 
     data_service = build_default_data_service()
 
-    run_id, candidates = run_screening(
-        universe=universe,
-        data_service=data_service,
-        max_workers=args.max_workers,
-        persist=not args.no_persist,
-    )
-
-    if not args.skip_support_detection:
-        run_id, supported = run_support_detection(
-            screened_candidates=candidates,
+    if args.skip_support_detection:
+        # Solo Paso 1: la spec no contempla "Paso 1 + Paso 3" sin Paso 2.
+        run_id, _ = run_screening(
+            universe=universe,
             data_service=data_service,
             max_workers=args.max_workers,
             persist=not args.no_persist,
-            run_id=run_id,
         )
-        n_paso_2 = sum(1 for s in supported if s.pasa_paso_2)
-        logger.info("=" * 60)
-        logger.info("PIPELINE SUMMARY")
-        logger.info(
-            "  Passed Paso 1 (filtros): %d", sum(1 for c in candidates if c.pasa_filtros_paso_1)
+    else:
+        run_id, _ = run_final_pipeline(
+            universe=universe,
+            data_service=data_service,
+            persist=not args.no_persist,
+            generate_reports=not args.skip_reports,
+            max_workers=args.max_workers,
+            macro_calendar_path=Path(args.macro_calendar),
         )
-        logger.info("  Passed Paso 2 (soporte fuerte): %d", n_paso_2)
 
     if run_id:
         logger.info("Results in data/screening_history.db, run_id=%s", run_id)

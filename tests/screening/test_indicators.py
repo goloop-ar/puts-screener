@@ -21,6 +21,33 @@ def _flat_df(value: float, periods: int = 60) -> pd.DataFrame:
     )
 
 
+def _close_df(values) -> pd.DataFrame:
+    dates = pd.bdate_range(end="2026-05-21", periods=len(values))
+    close = pd.Series(values, index=dates, dtype=float)
+    return pd.DataFrame(
+        {"Open": close, "High": close, "Low": close, "Close": close, "Volume": 1_000_000}
+    )
+
+
+def test_sma_daily_basic():
+    df = _close_df([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert indicators.sma_daily(df, 3) == pytest.approx(9.0)  # (8+9+10)/3
+
+
+def test_sma_daily_insufficient_data():
+    df = _close_df([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert indicators.sma_daily(df, 20) is None
+
+
+def test_ema_daily_constant_series():
+    assert indicators.ema_daily(_flat_df(100.0, periods=30), 10) == pytest.approx(100.0)
+
+
+def test_ema_daily_insufficient_data():
+    df = _close_df([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    assert indicators.ema_daily(df, 20) is None
+
+
 def test_sma_weekly(ohlcv_daily_long):
     weekly = ohlcv_daily_long["Close"].resample("W-FRI").last().dropna()
     expected = float(weekly.rolling(50).mean().iloc[-1])

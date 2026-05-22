@@ -21,8 +21,10 @@ def compute_zone_score(elements: list[SupportLevel]) -> int:
     """Score de confluencia con dedup por categoría (§6.3, verbatim de la spec)."""
     categories_present = set()
     for e in elements:
-        if e.element in ("sma_200w", "ema_200d"):
+        if e.element in ("sma_200w", "ema_200d", "sma_200d"):
             categories_present.add("sma_200")
+        elif e.element in ("sma_50w", "sma_50d", "ema_50d"):
+            categories_present.add("sma_50")
         elif e.element in ("fib_618", "fib_786"):
             categories_present.add("fibonacci")
         elif e.element.startswith("avwap_"):

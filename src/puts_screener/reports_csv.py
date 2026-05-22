@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 _ELEMENT_LABELS = {
     "sma_200w": "SMA200W",
     "ema_200d": "EMA200D",
+    "sma_200d": "SMA200D",
+    "sma_50d": "SMA50D",
+    "sma_50w": "SMA50W",
+    "ema_50d": "EMA50D",
     "fib_618": "FIB_618",
     "fib_786": "FIB_786",
     "avwap_pivot_low": "AVWAP_pivot_low",

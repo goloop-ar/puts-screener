@@ -84,6 +84,20 @@ def test_csv_excludes_candidates_not_passing(tmp_path, final_candidate_factory):
     assert [r["ticker"] for r in rows] == ["PASS"]
 
 
+def test_csv_new_ma_element_labels(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(
+        elements=[
+            ("sma_200d", 99.0, 2),
+            ("sma_50d", 98.0, 1),
+            ("sma_50w", 97.0, 1),
+            ("ema_50d", 96.0, 1),
+        ]
+    )
+    path = write_csv_report([fc], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    assert rows[0]["elementos_score"] == "SMA200D | SMA50D | SMA50W | EMA50D"
+
+
 def test_csv_flags_joined_with_pipe(tmp_path, final_candidate_factory):
     fc = final_candidate_factory(
         flags=["Earnings en 10 días (2026-05-31)", "Ex-dividend en 8 días ($0.50)"]

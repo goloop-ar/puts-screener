@@ -58,6 +58,22 @@ def sma_weekly(ohlcv_daily: pd.DataFrame, weeks: int) -> float:
     return float(weekly.rolling(weeks).mean().iloc[-1])
 
 
+def sma_daily(ohlcv_daily: pd.DataFrame, length: int) -> float | None:
+    """SMA simple sobre cierres diarios. None si hay menos de `length` días."""
+    close = ohlcv_daily["Close"]
+    if len(close) < length:
+        return None
+    return float(close.rolling(length).mean().iloc[-1])
+
+
+def ema_daily(ohlcv_daily: pd.DataFrame, length: int) -> float | None:
+    """EMA sobre cierres diarios (adjust=False). None si hay menos de `length` días."""
+    close = ohlcv_daily["Close"]
+    if len(close) < length:
+        return None
+    return float(close.ewm(span=length, adjust=False).mean().iloc[-1])
+
+
 def rsi_daily(ohlcv_daily: pd.DataFrame, length: int = _RSI_LENGTH) -> float:
     """Último valor del RSI sobre cierres diarios."""
     return float(_rsi_series(ohlcv_daily["Close"], length).iloc[-1])

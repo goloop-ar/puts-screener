@@ -72,6 +72,43 @@ def test_mixed_confluence_scores_five():
     assert zones[0].has_dynamic_confirmer is True
 
 
+def test_dedup_sma200_three_labels_counts_two():
+    """SMA200W + EMA200D + SMA200D en la misma zona → categoría sma_200 = 2 pts (no 6)."""
+    levels = [
+        _level(100.0, "sma_200w", points=2),
+        _level(100.1, "ema_200d", points=2),
+        _level(100.2, "sma_200d", points=2),
+    ]
+    zones = cluster_into_zones(levels, ATR, SPOT)
+    assert len(zones) == 1
+    assert zones[0].score == 2
+
+
+def test_dedup_sma50_three_labels_counts_one():
+    """SMA50W + SMA50D + EMA50D en la misma zona → categoría sma_50 = 1 pt (no 3)."""
+    levels = [
+        _level(100.0, "sma_50w"),
+        _level(100.1, "sma_50d"),
+        _level(100.2, "ema_50d"),
+    ]
+    zones = cluster_into_zones(levels, ATR, SPOT)
+    assert len(zones) == 1
+    assert zones[0].score == 1
+
+
+def test_sma200_plus_sma50_plus_confirmer_scores_four():
+    """SMA200 (2) + SMA50 (1) + HVN (1) = 4."""
+    levels = [
+        _level(100.0, "sma_200w", points=2),
+        _level(100.2, "sma_50d"),
+        _level(100.4, "hvn"),
+    ]
+    zones = cluster_into_zones(levels, ATR, SPOT)
+    assert len(zones) == 1
+    assert zones[0].score == 4
+    assert zones[0].has_dynamic_confirmer is True
+
+
 # --- filtro por side (support vs resistance) ---
 
 

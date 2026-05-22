@@ -18,6 +18,7 @@ from puts_screener.support_elements import (
     gap_levels,
     hvn_levels,
     polarity_levels,
+    sma_50_levels,
     sma_200_levels,
 )
 
@@ -46,17 +47,17 @@ def _pivot(date, price, kind):
 
 
 def test_sma_200_levels_constant_series():
-    """210 semanas y 250 días constantes a 100 → SMA200W=100, EMA200D=100, 2 pts c/u."""
+    """≥200 días/semanas constantes a 100 → SMA200W + EMA200D + SMA200D, 2 pts cada uno."""
     weekly = _daily([100.0] * 210)
     daily = _daily([100.0] * 250)
-    levels = sma_200_levels(daily, weekly, spot=100.0)
+    levels = sma_200_levels(daily, weekly, spot=110.0)
 
     by_element = {lvl.element: lvl for lvl in levels}
-    assert set(by_element) == {"sma_200w", "ema_200d"}
+    assert set(by_element) == {"sma_200w", "ema_200d", "sma_200d"}
     assert by_element["sma_200w"].price == pytest.approx(100.0)
     assert by_element["ema_200d"].price == pytest.approx(100.0)
-    assert by_element["sma_200w"].points == 2
-    assert by_element["ema_200d"].points == 2
+    assert by_element["sma_200d"].price == pytest.approx(100.0)
+    assert all(lvl.points == 2 for lvl in levels)
 
 
 def test_sma_200_levels_ema_cross_check():
@@ -70,8 +71,10 @@ def test_sma_200_levels_ema_cross_check():
     levels = {lvl.element: lvl.price for lvl in sma_200_levels(daily, weekly, spot=100.0)}
     expected_ema = pd.Series(daily_closes).ewm(span=200, adjust=False).mean().iloc[-1]
     expected_sma = pd.Series(weekly_closes).rolling(200).mean().iloc[-1]
+    expected_sma200d = pd.Series(daily_closes).rolling(200).mean().iloc[-1]
     assert levels["ema_200d"] == pytest.approx(expected_ema)
     assert levels["sma_200w"] == pytest.approx(expected_sma)
+    assert levels["sma_200d"] == pytest.approx(expected_sma200d)
 
 
 def test_sma_200_levels_insufficient_data():
@@ -88,6 +91,32 @@ def test_sma_200_levels_side_derivation():
     assert by_element["sma_200w"].side == "support"
     assert by_element["ema_200d"].price == pytest.approx(105.0)
     assert by_element["ema_200d"].side == "resistance"
+
+
+# --- SMA/EMA 50 (Etapa 3) ---
+
+
+def test_sma_50_levels_full():
+    """≥250 ruedas (~60 semanas) → SMA50D + SMA50W + EMA50D, 1 pt cada uno."""
+    daily = _daily([100.0] * 300)
+    levels = sma_50_levels(daily, spot=110.0)
+    by_element = {lvl.element: lvl for lvl in levels}
+    assert set(by_element) == {"sma_50d", "sma_50w", "ema_50d"}
+    assert all(lvl.points == 1 for lvl in levels)
+
+
+def test_sma_50_levels_insufficient_data():
+    """30 días → ninguna MA de 50 tiene data suficiente → []."""
+    assert sma_50_levels(_daily([100.0] * 30), spot=100.0) == []
+
+
+def test_sma_50_levels_side_derivation():
+    """MA por encima del spot → resistance; por debajo → support (todas valen 100)."""
+    daily = _daily([100.0] * 300)
+    above = {lvl.element: lvl for lvl in sma_50_levels(daily, spot=90.0)}
+    assert above["sma_50d"].side == "resistance"
+    below = {lvl.element: lvl for lvl in sma_50_levels(daily, spot=110.0)}
+    assert below["sma_50d"].side == "support"
 
 
 # --- Polaridad (§5.2) ---

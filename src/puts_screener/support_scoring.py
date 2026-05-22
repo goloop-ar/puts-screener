@@ -25,6 +25,7 @@ from puts_screener.support_elements import (
     gap_levels,
     hvn_levels,
     polarity_levels,
+    sma_50_levels,
     sma_200_levels,
 )
 from puts_screener.zone_clustering import cluster_into_zones
@@ -45,8 +46,10 @@ def _last_earnings_date(candidate: ScreenedCandidate) -> pd.Timestamp | None:
 
 def _element_category(element: str) -> str:
     """Categoría del elemento para el desempate por diversidad (espeja §6.2/§6.3)."""
-    if element in ("sma_200w", "ema_200d"):
+    if element in ("sma_200w", "ema_200d", "sma_200d"):
         return "sma_200"
+    if element in ("sma_50w", "sma_50d", "ema_50d"):
+        return "sma_50"
     if element in ("fib_618", "fib_786"):
         return "fibonacci"
     if element.startswith("avwap_"):
@@ -111,6 +114,7 @@ def _compute_all_levels(candidate: ScreenedCandidate) -> tuple[list[SupportLevel
 
     levels: list[SupportLevel] = []
     levels += sma_200_levels(ohlcv, candidate.ohlcv_weekly, spot)
+    levels += sma_50_levels(ohlcv, spot)
     levels += polarity_levels(ohlcv, pivots, spot)
     levels += fib_levels(ohlcv, pivots, spot)
     levels += avwap_levels(ohlcv, pivots, last_earnings, spot)

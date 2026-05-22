@@ -116,9 +116,12 @@ def test_best_zone_tiebreak_by_category_diversity():
 
 
 def test_analyze_supports_empty_on_short_history(candidate_factory, ascending_ohlcv):
-    """OHLCV ascendente de 50 días → sin elementos → análisis vacío, no rompe."""
+    """OHLCV ascendente de 50 días → ninguna zona válida ni best_zone (no rompe).
+
+    Con las MAs de 50 (Etapa 3) un histórico de 50 ruedas sí produce SMA50D/EMA50D, pero
+    solas (categoría sma_50 = 1 pt, sin confirmador dinámico) no forman una zona válida.
+    """
     candidate = candidate_factory(ascending_ohlcv)
     analysis = analyze_supports(candidate, data_service=None)
     assert analysis.valid_zones == []
-    assert analysis.rejected_zones == []
     assert analysis.best_zone is None

@@ -32,11 +32,14 @@ from puts_screener.config_supports import (
     SCORE_OTHER_ELEMENT_POINTS,
     SCORE_SMA200_POINTS,
 )
+from puts_screener.indicators import ema_daily, sma_daily, sma_weekly
 from puts_screener.models_support import SupportLevel
 from puts_screener.pivots import Pivot
 
 _SMA_WEEKS = 200
 _EMA_DAYS = 200
+_SMA_DAYS = 200
+_MA_50_LENGTH = 50
 
 
 def _side_for(price: float, spot: float) -> Literal["support", "resistance"]:
@@ -95,6 +98,64 @@ def sma_200_levels(
                 element="ema_200d",
                 points=SCORE_SMA200_POINTS,
                 side=_side_for(ema_200d, spot),
+            )
+        )
+
+    sma_200d = sma_daily(ohlcv_daily, _SMA_DAYS)
+    if sma_200d is not None:
+        levels.append(
+            SupportLevel(
+                price=sma_200d,
+                element="sma_200d",
+                points=SCORE_SMA200_POINTS,
+                side=_side_for(sma_200d, spot),
+            )
+        )
+
+    return levels
+
+
+def sma_50_levels(ohlcv_daily: pd.DataFrame, spot: float) -> list[SupportLevel]:
+    """SMA50 diaria, SMA50 semanal y EMA50 diaria como niveles (1 pt cada uno, categoría sma_50).
+
+    Cada nivel se omite si no hay data suficiente (sin romper). El dedup por categoría del
+    clustering (§6.3) cuenta la categoría `sma_50` una sola vez por zona.
+    """
+    levels: list[SupportLevel] = []
+
+    sma_50d = sma_daily(ohlcv_daily, _MA_50_LENGTH)
+    if sma_50d is not None:
+        levels.append(
+            SupportLevel(
+                price=sma_50d,
+                element="sma_50d",
+                points=SCORE_OTHER_ELEMENT_POINTS,
+                side=_side_for(sma_50d, spot),
+            )
+        )
+
+    try:
+        sma_50w = sma_weekly(ohlcv_daily, _MA_50_LENGTH)
+    except ValueError:
+        sma_50w = None
+    if sma_50w is not None:
+        levels.append(
+            SupportLevel(
+                price=sma_50w,
+                element="sma_50w",
+                points=SCORE_OTHER_ELEMENT_POINTS,
+                side=_side_for(sma_50w, spot),
+            )
+        )
+
+    ema_50d = ema_daily(ohlcv_daily, _MA_50_LENGTH)
+    if ema_50d is not None:
+        levels.append(
+            SupportLevel(
+                price=ema_50d,
+                element="ema_50d",
+                points=SCORE_OTHER_ELEMENT_POINTS,
+                side=_side_for(ema_50d, spot),
             )
         )
 

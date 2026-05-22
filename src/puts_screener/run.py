@@ -11,12 +11,44 @@ Uso:
 import argparse
 import logging
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from puts_screener.final_pipeline import run_final_pipeline
 from puts_screener.providers.factory import build_default_data_service
 from puts_screener.screening_pipeline import run_screening
 from puts_screener.universe_builder import build_universe
+
+LOG_DIR = Path("logs")
+_CONSOLE_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+_FILE_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(funcName)s:%(lineno)d | %(message)s"
+
+
+def _configure_logging(log_dir: Path = LOG_DIR, timestamp: datetime | None = None) -> Path:
+    """Logging dual: consola (INFO, stderr, sin cambios) + archivo (DEBUG, más verboso).
+
+    Adjunta ambos handlers al logger raíz; como todos los loggers (la app y third-party
+    como yfinance/urllib3/requests) propagan al raíz por default, todo termina también en
+    el archivo. Devuelve el path del log.
+    """
+    timestamp = timestamp or datetime.now()
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"screening_{timestamp:%Y-%m-%d_%H%M}.log"
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)  # gating fino por handler
+
+    console = logging.StreamHandler()  # stderr
+    console.setLevel(logging.INFO)
+    console.setFormatter(logging.Formatter(_CONSOLE_FORMAT))
+
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(_FILE_FORMAT))
+
+    root.addHandler(console)
+    root.addHandler(file_handler)
+    return log_path
 
 
 def main() -> int:
@@ -45,11 +77,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+    log_path = _configure_logging()
     logger = logging.getLogger(__name__)
+    logger.info("Logging to %s", log_path)
 
     logger.info("Building universe...")
     universe = build_universe(refresh=args.refresh_universe)

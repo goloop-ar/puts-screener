@@ -31,9 +31,9 @@ Claude Code), no a Claude Code.
 - Testing: `pytest`
 - Linting + format: `ruff` (todo-en-uno)
 - Core data: `pandas`, `numpy`
-- Indicadores técnicos: `pandas-ta`
+- Indicadores técnicos: numpy/pandas puro (no `pandas-ta`)
 - HTTP: `requests`
-- Templating HTML: `jinja2` (cuando llegue el momento)
+- Templating HTML: `jinja2`
 
 ## Estructura del proyecto
 

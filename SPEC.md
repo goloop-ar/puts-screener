@@ -34,10 +34,10 @@ El filtro de IV Percentile (52w) del SOP se reemplaza en esta fase por **HV Perc
   - **OHLCV histórico**: yfinance (único en el stack default desde 2026-05-21; Stooq quedó fuera por requerimiento de API key)
   - **Fundamentals (Market Cap, FCF, sector)**: yfinance primario, Finnhub como fallback opcional
   - **Analistas (price target, recommendations) + Earnings + Rating changes**: yfinance primario, Finnhub como fallback opcional para US
-- Cálculos técnicos: pandas-ta + lógica propia
+- Cálculos técnicos: numpy/pandas puro + lógica propia
 - Persistencia: SQLite local (committed al repo)
 - Reportes: HTML estático + CSV
-- Orquestación final: GitHub Actions con cron diario post-cierre US (Fase 3)
+- Orquestación final: GitHub Actions con cron diario post-cierre US (Fase 3 ✅)
 
 ### Diseño para swap
 
@@ -54,7 +54,7 @@ Todas las fuentes de data se implementan detrás de una interfaz abstracta `Data
 
 Por cada corrida diaria:
 
-### 4.1 CSV detallado (`output/screening_YYYY-MM-DD.csv`)
+### 4.1 CSV detallado (`output/screening_YYYY-MM-DD_HHMM.csv`)
 
 Una fila por candidato que pasa todos los filtros. Columnas mínimas:
 
@@ -71,9 +71,9 @@ Una fila por candidato que pasa todos los filtros. Columnas mínimas:
 - `earnings_en_45d` (bool)
 - `hv_percentile_52w`
 
-### 4.2 HTML report (`output/screening_YYYY-MM-DD.html`)
+### 4.2 HTML report (`output/screening_YYYY-MM-DD_HHMM.html`)
 
-Top 20 rankeado por score de soporte desc + prioridad de tipo (T1 > T2 > T4 > T3 > T5). Para cada candidato:
+Cards rankeadas por prioridad de tipo (T1 > T2 > T4 > T3 > T5), luego score de soporte desc y distancia asc. Sin tope de cantidad (todos los que pasan Paso 2). Para cada candidato:
 
 - Card con ticker, sector, tipo T, score, precio spot, distancia a soporte
 - Justificación textual de por qué califica
@@ -90,7 +90,7 @@ Tablas:
 ## 5. Arquitectura general
 
 ```
-GitHub Actions cron (22:00 ART L-V)
+GitHub Actions cron (22:00 UTC L-V)
             │
             ▼
    1. Universe Builder         → universo cap>$10B, vol>1M
@@ -119,7 +119,7 @@ GitHub Actions cron (22:00 ART L-V)
 
 ## 6. Fases del proyecto
 
-### Fase 1 — MVP local (actual)
+### Fase 1 — MVP local (✅ completa)
 
 - Estructura del proyecto ← este paso
 - Data providers (Stooq + yfinance + Finnhub) con interfaz abstracta
@@ -137,11 +137,12 @@ GitHub Actions cron (22:00 ART L-V)
 - Métricas de calidad del screening
 - Telegram bot opcional para notificación
 
-### Fase 3 — Producción
+### Fase 3 — Producción (✅ implementada, spec 05, 2026-05-27)
 
 - GitHub Actions workflow con cron
 - Publicación de HTML a GitHub Pages
 - Auto-commit de outputs al repo
+- Sitio publicado: https://goloop-ar.github.io/puts-screener/
 
 ### Fase 4 — Opciones (futuro)
 

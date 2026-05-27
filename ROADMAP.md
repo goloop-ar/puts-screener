@@ -2,7 +2,7 @@
 
 > Documento vivo: estado actual, issues abiertos, próximos pasos. Actualizar al cierre de cada sesión.
 
-**Última actualización**: 2026-05-22
+**Última actualización**: 2026-05-27
 
 ---
 
@@ -160,10 +160,21 @@ Endurecimiento de la capa de data tras diagnosticar 55.8% de skip rate a univers
 - Errores residuales: **80% `YFRateLimitError`** (transitorios, el retry los absorbe) / **20%
   `TypeError` de schema** (no retriables — requieren más blindaje defensivo).
 
+### Spec 05 — GitHub Actions + Pages (Fase 3) ✅ Cerrada (2026-05-27)
+
+Automatización completa del run diario en GitHub Actions con publicación a GitHub Pages.
+
+- [x] **Tanda 1**: módulos Python (`config_publishing`, `models_publishing`, `publish_pages`) + template `history.html.j2` + 11 tests (383 verdes totales). Commit `d4fb3e5`.
+- [x] **Tanda 2**: workflow YAML (`.github/workflows/daily-screening.yml`) con cron `0 22 * * 1-5`, `actions/cache@v4` para OHLCV cache, `actions/deploy-pages` artifact-based, push con rebase+retry, `.gitignore` += `docs-build/`. README sección "Fase 3 — Producción". Smoke local del bundle verificado (HTTP 200 en index + history, grep matchea contenido). Commit `aafb686`.
+- [x] **Tanda 3**: tracking inicial de `output/screening_*.{html,csv}` (28 archivos, 13 pares timestamped + latest) y `data/screening_history.db` (3.4 MB, tratado como binario por `.gitattributes` preexistente). Commit `197bddc`.
+- [x] **Baseline de embudo en universo completo** (998 tickers únicos sp500+nasdaq100+stoxx600, wall-time 12m16s local con cache caliente): 670 procesados / 328 sin data crítica → 131 Paso 1 (13.1%) → 39 Paso 2 (3.9%) → 131 con flags binarios. Más bajo que el 6.5% Paso 2 sobre sp500-only (run de 200) — esperable por STOXX 600 con data EU faltante.
+
+**Pendiente humano** (no automatizable): setup one-time en GitHub Settings (Pages source = GitHub Actions, workflow permissions = read/write, environment `github-pages`) + primer `workflow_dispatch` manual + push de los 4 commits locales (`b49a950`, `d4fb3e5`, `aafb686`, `197bddc`).
+
 ### Estadísticas
 
-- **Tests**: 315 verdes
-- **Commits**: 73
+- **Tests**: 383 verdes
+- **Commits**: 94
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -171,7 +182,15 @@ Endurecimiento de la capa de data tras diagnosticar 55.8% de skip rate a univers
 
 ## 2. En vuelo (issues abiertos)
 
-**Sin issues abiertos.** Próximo bloque de trabajo: Fase 3 (GitHub Actions + Pages) o Fase 5 (web app local), según prioridad.
+**Sin issues abiertos.**
+
+**Pendiente humano para activar Fase 3 en producción** (no bloquea código local):
+- Push de los 4 commits locales de la spec 05 (`b49a950`, `d4fb3e5`, `aafb686`, `197bddc`).
+- Setup one-time en GitHub Settings: Pages source = `GitHub Actions`, workflow permissions = read+write, aceptar environment `github-pages` en primer run.
+- Primer `workflow_dispatch` manual desde la UI para validar el ciclo completo (run + commit + deploy a Pages).
+- Validación humana del sitio publicado.
+
+Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + charts interactivos) o Fase 4 (data de opciones, futuro lejano).
 
 ---
 
@@ -179,14 +198,16 @@ Endurecimiento de la capa de data tras diagnosticar 55.8% de skip rate a univers
 
 ### 3.1 Inmediato (próxima sesión)
 
-Validación empírica del pipeline completo con `--limit 200`: confirmar que CSV + HTML se generan correctamente sobre muestra grande, que los flags binarios aparecen donde deberían, y que la performance del pipeline completo es razonable. Después de eso, arrancar Fase 3 (GitHub Actions + Pages) según §3.2.
+Validar Fase 3 en producción (ver §2 "Pendiente humano"). Una vez verificado el ciclo automático, arrancar Fase 5 (web app local) — ver §3.4. Etapa 6 del rework de scoring sigue postergada a Fase 4.
 
 ### 3.2 Fase 3 — Producción
 
-- GitHub Actions con cron diario post-cierre US.
-- Publicación de HTML a GitHub Pages.
-- Auto-commit de outputs al repo.
-- Notificación Telegram opcional.
+**Estado: ✅ Implementada en spec 05. Pendiente activación humana (ver §2).**
+
+- GitHub Actions con cron diario post-cierre US. → ✅ (cron `0 22 * * 1-5` lun-vie).
+- Publicación de HTML a GitHub Pages. → ✅ (`actions/deploy-pages` artifact-based).
+- Auto-commit de outputs al repo. → ✅ (`output/screening_*` + `data/screening_history.db`).
+- Notificación Telegram opcional. → ⏸️ Deferido a spec 06 (post-validación de Pages).
 
 ### 3.3 Fase 4 — Opciones (futuro lejano)
 
@@ -330,6 +351,17 @@ Para no buscarlas en specs:
 - **2026-05-22 — Etapa 4: `compute_zone_score` ahora aplica MAX peso por categoría, no suma**: cuando una zona tiene SMA200W (3.0) + EMA200D (2.5) + SMA200D (3.0) dentro de la misma categoría sma_200, aporta 3.0 (max), no 8.5 (suma). Preserva la intención de dedup pero respeta la jerarquía de pesos diferenciados.
 - **2026-05-22 — Etapa 4: gate estructural compuesto con gate numérico**: una zona necesita `score >= 5.0` AND `>= 2 elementos individuales con peso >= 2.5`. Diseñado para rechazar tanto zonas con score-inflado por acumulación de pesos chicos como zonas con un solo elemento heavy aislado. Validación a escala (n=200) confirma calibración correcta.
 - **2026-05-22 — Etapa 5 del rework descartada (no implementada)**: post-validación N=200, el bug que motivaba Etapa 5 (fibs inflados por swings chicos) está mitigado por la ponderación de Etapa 4 (FIB_786=0.0, FIB_618=1.5 no califica como heavy). Implementarla agregaría complejidad sin valor. Si en el futuro se identifica un caso real donde fibs vuelvan a inflar score, reabrir.
+- **2026-05-27 — Spec 05, Pages servido vía `actions/deploy-pages` con artifact**: descartadas `docs/` commiteado y rama `gh-pages`. Bundle vive en `docs-build/` (gitignored, temporal), se sube como artifact por run. Mantiene el árbol limpio y es el patrón actual recomendado por GitHub.
+- **2026-05-27 — Spec 05, cache OHLCV con `actions/cache@v4`**: key por `run_id` garantiza save, `restore-keys` con prefix restaura el más reciente. Invalidación manual via bump de version (`v1`→`v2`) en el key.
+- **2026-05-27 — Spec 05, DB commiteada al repo + binario en `.gitattributes`**: habilita backtesting futuro contra el propio histórico. Trade-off de crecimiento monotónico aceptado (~50-100 KB/run, manejable por años). `.gitattributes` preexistía con `*.db binary` y `*.parquet binary` — la spec lo listaba como [NEW] pero estaba [EXISTING] con contenido exacto, no requirió cambios.
+- **2026-05-27 — Spec 05, histórico navegable autogenerado en `history.html`**: el índice se construye en cada deploy desde `output/`. Sin esto, el histórico solo sería accesible vía `git log` perdiendo el valor de Pages.
+- **2026-05-27 — Spec 05, cron en 22:00 UTC lun-vie**: cubre cierre US en DST (18:00 ET) y winter (17:00 ET). Sin manejo explícito de feriados US (output similar al día previo, no hay daño).
+- **2026-05-27 — Spec 05, Telegram diferido a spec 06**: superficie de la spec inicial ya significativa (workflow + Pages + caching + commit + permisos). Telegram entra una vez que Pages esté validado en producción.
+- **2026-05-27 — Spec 05, Finnhub no en Actions inicialmente**: skip rate 38.5% post-hardening con yfinance solo es aceptable. Sumar Finnhub es PR chico si se vuelve problema (API key en Secrets).
+- **2026-05-27 — Spec 05, sin CI de tests en `daily-screening.yml`**: workflow productivo, no CI. CI de tests va en workflow separado si se quiere; mezclar tests + run alarga wall-time del cron sin razón.
+- **2026-05-27 — Spec 05, `timeout-minutes: 45` provisional**: holgado contra smoke ~12m local. Margen 1.8-2.2x sobre worst case esperado con cache frío en CI. Subir si runs reales se acercan al techo.
+- **2026-05-27 — Spec 05, filename pattern con regex estricto** (`screening_YYYY-MM-DD_HHMM.(html|csv)`): solo archivos que matchean entran al histórico. Cualquier basura en `output/` (incluido `screening_latest.*`) es ignorada por el discover, aunque `latest.*` sí se copia explícitamente al bundle como home.
+- **2026-05-27 — Anotación factual (no decisión)**: el timestamp de los nombres viene de `datetime.now()` local. En Actions corre UTC (`_2200` consistente); local en runs manuales del usuario va a tener timestamp local. No bloqueante, no ambiguo (la fecha resuelve). Cambiar a UTC explícito en `config_reports.REPORT_FILENAME_PATTERN` lo arreglaría si en el futuro molesta.
 
 ---
 

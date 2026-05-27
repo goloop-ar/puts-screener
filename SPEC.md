@@ -13,12 +13,12 @@ Identificar diariamente acciones de mercados US y Europa que cumplan los criteri
 - Paso 0: Clasificación de situación de entrada (T1–T5)
 - Paso 1: Screening (Calidad, Liquidez del subyacente, Tendencia macro, Valoración, Momento técnico)
 - Paso 2: Identificación de soportes y scoring de confluencia
-- Filtro final: precio actual dentro del 10% de un soporte con score ≥ 3
+- Paso 3: Check de eventos binarios completo
+- Filtro final: precio actual dentro del 10% de un soporte con score ≥ 5.0 y ≥2 elementos de peso ≥2.5 (gate estructural compuesto)
 - Output: CSV detallado + HTML report top 20 + persistencia SQLite
 
 ### Excluido por ahora (fases futuras)
 
-- Paso 3: Check de eventos binarios completo
 - Paso 4: Selección de strike, delta, prima, yield, gestión de salida
 - Todo lo relacionado a opciones (IV, IV Percentile, Greeks, cadena)
 - Ejecución de órdenes
@@ -75,7 +75,7 @@ Una fila por candidato que pasa todos los filtros. Columnas mínimas:
 
 Cards rankeadas por prioridad de tipo (T1 > T2 > T4 > T3 > T5), luego score de soporte desc y distancia asc. Sin tope de cantidad (todos los que pasan Paso 2). Para cada candidato:
 
-- Card con ticker, sector, tipo T, score, precio spot, distancia a soporte
+- Card con ticker, sector, tipo T, tier de confluencia (estrellas + label) con score crudo debajo, precio spot formateado por divisa, distancia a soporte. Eventos macro globales (FOMC, CPI) en banner único arriba de la grilla; eventos ticker-específicos (earnings, ex-div) flageados per-card.
 - Justificación textual de por qué califica
 - Idealmente: mini-chart de precio diario últimos 6 meses con zona de soporte sombreada (puede ir a Fase 2)
 
@@ -111,7 +111,7 @@ GitHub Actions cron (22:00 UTC L-V)
    6. Detección de soportes + scoring de confluencia
             │
             ▼
-   7. Filtro final             → distancia ≤ 10% + score ≥ 3
+   7. Filtro final             → distancia ≤ 10% + score ≥ 5.0 + gate estructural ≥2 heavies
             │
             ▼
    8. Reportes + persistencia
@@ -157,7 +157,7 @@ GitHub Actions cron (22:00 UTC L-V)
 | --- | --- |
 | DTE | Days To Expiration |
 | T1–T5 | Tipos de situación de entrada del Paso 0 del SOP |
-| Score de soporte | Puntuación de confluencia en una zona (mín. 3 para validar) |
+| Score de soporte | Score ponderado: suma del peso máximo por categoría de elemento (SMA200, polaridad, AVWAP, etc.) multiplicado por un factor de densidad [0.85, 1.5] que premia confluencias compactas. Mín. 5.0 + ≥2 elementos heavy (peso ≥2.5) para validar. Tier 1-5 derivado del score final para display (⭐ a ⭐⭐⭐⭐⭐). |
 | HVN | High Volume Node — zona de alta densidad en Volume Profile |
 | AVWAP | Anchored VWAP — VWAP desde un punto ancla en el tiempo |
 | IV Percentile | Percentil de Implied Volatility en ventana de 52w |

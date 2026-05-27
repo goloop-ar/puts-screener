@@ -28,9 +28,11 @@ GAP_LOOKBACK_DAYS: int = 252  # solo gaps de los últimos 12 meses cuentan
 # === Divergencias ===
 DIVERGENCE_LOOKBACK_DAYS: int = 60  # divergencias entre pivots dentro de esta ventana
 
-# === Zonas ===
-ZONE_WIDTH_ATR_MULTIPLIER: float = 0.5  # zona = centro ± este múltiplo de ATR14
-CLUSTERING_TOLERANCE_ATR: float = 0.5  # elementos a ≤ este múltiplo de ATR son misma zona
+# === Zonas (spec 06: tolerance híbrida + envelope real) ===
+CLUSTERING_TOLERANCE_ATR: float = 0.4  # base del tolerance entre niveles consecutivos (× ATR14)
+CLUSTERING_TOLERANCE_MAX_PCT: float = 0.01  # cap del tolerance: min(ATR×factor, spot×esto)
+ZONE_MAX_WIDTH_PCT: float = 0.04  # gate post-cluster: descarta cluster si supera este % del centro
+ZONE_BUFFER_PCT: float = 0.001  # buffer cosmético a cada lado del envelope (no afecta lógica)
 
 # === Filtro de proximidad ===
 MAX_DISTANCE_TO_SUPPORT_PCT: float = 0.10  # zona a ≤ 10% por debajo del spot
@@ -73,3 +75,14 @@ SCORE_MIN_VALID: float = 5.0
 con runs reales. Va junto con el gate estructural MIN_HEAVY_ELEMENTS."""
 
 DYNAMIC_CONFIRMERS: tuple[str, ...] = ("avwap", "hvn", "divergence")  # ≥ 1 obligatorio
+
+# === Density bonus (spec 06 §3.2; provisional, calibrar post-validación) ===
+MIN_WIDTH_FLOOR_PCT: float = 0.005  # floor de ancho (fracción) p/ evitar div por ~0
+REFERENCE_DENSITY: float = 100.0  # densidad base (heavies / fracción de ancho) → multiplicador 1.0
+DENSITY_BONUS_SLOPE: float = 0.005  # multiplier = 1.0 + (density - REFERENCE_DENSITY) * slope
+MIN_DENSITY_MULTIPLIER: float = 0.85  # floor del multiplicador (zona ancha pierde máx 15%)
+MAX_DENSITY_MULTIPLIER: float = 1.5  # cap del multiplicador (zona compacta gana máx 50%)
+
+# === Score tier (spec 06 §3.3; labels human-readable en config_reports, tanda 2) ===
+SCORE_TIER_THRESHOLDS: dict[int, float] = {5: 18.0, 4: 13.0, 3: 9.0, 2: 6.5, 1: 5.0}
+"""score >= 18 → tier 5; >= 13 → 4; >= 9 → 3; >= 6.5 → 2; >= 5 → 1. Provisional."""

@@ -1,17 +1,23 @@
-"""Agrupamiento de SupportLevel en zonas de confluencia y scoring (§6 de la spec 03).
+"""Agrupamiento de SupportLevel en zonas de confluencia y scoring (§6 spec 03 + spec 06).
 
-Los elementos cercanos (≤ 0.5×ATR14) se agrupan en una `SupportZone`. El score es la suma
-ponderada por categoría (dedup §6.3): cada categoría aporta el MÁXIMO peso entre sus
-elementos presentes (pesos en ELEMENT_WEIGHTS, Etapa 4).
+Spec 06: tolerance híbrida (min de ATR×factor y %spot), gate post-cluster por ancho máximo
+absoluto, bounds = envelope real de los elementos (no ATR fijo), y multiplicador de densidad
+sobre el score base (premia clusters compactos con muchos heavies, penaliza los anchos).
 """
-
-import statistics
 
 from puts_screener.config_supports import (
     CLUSTERING_TOLERANCE_ATR,
+    CLUSTERING_TOLERANCE_MAX_PCT,
+    DENSITY_BONUS_SLOPE,
     DYNAMIC_CONFIRMERS,
     ELEMENT_WEIGHTS,
-    ZONE_WIDTH_ATR_MULTIPLIER,
+    HEAVY_ELEMENT_WEIGHT_THRESHOLD,
+    MAX_DENSITY_MULTIPLIER,
+    MIN_DENSITY_MULTIPLIER,
+    MIN_WIDTH_FLOOR_PCT,
+    REFERENCE_DENSITY,
+    ZONE_BUFFER_PCT,
+    ZONE_MAX_WIDTH_PCT,
 )
 from puts_screener.models_support import SupportLevel, SupportZone
 
@@ -29,11 +35,30 @@ def _element_category(element: str) -> str:
     return element
 
 
-def compute_zone_score(elements: list[SupportLevel]) -> float:
-    """Score ponderado con dedup por categoría (§6.3 + Etapa 4).
+def density_multiplier(n_heavy: int, width_pct: float) -> float:
+    """Multiplicador de densidad del score (§6.2). Función pura, clipeada a [MIN, MAX].
 
-    Por cada categoría presente, aporta el máximo peso (ELEMENT_WEIGHTS) entre sus elementos.
-    Elementos desconocidos o de peso 0.0 (fib_786, divergence) no suman.
+    densidad = n_heavy / max(width_pct, floor). multiplier = 1 + (densidad - ref) * slope,
+    clipeado a [MIN_DENSITY_MULTIPLIER, MAX_DENSITY_MULTIPLIER].
+    """
+    if n_heavy <= 0:
+        return 1.0  # no debería pasar — el gate de heavy >= 2 lo evita
+    width_floored = max(width_pct, MIN_WIDTH_FLOOR_PCT)
+    density = n_heavy / width_floored
+    multiplier = 1.0 + (density - REFERENCE_DENSITY) * DENSITY_BONUS_SLOPE
+    return max(MIN_DENSITY_MULTIPLIER, min(multiplier, MAX_DENSITY_MULTIPLIER))
+
+
+def compute_zone_score(
+    elements: list[SupportLevel],
+    *,
+    zone_width_pct: float,
+    n_heavy_elements: int,
+) -> float:
+    """Score ponderado con dedup por categoría × multiplicador de densidad (§6.2).
+
+    score_base = suma del máximo peso (ELEMENT_WEIGHTS) por categoría presente. El resultado
+    se multiplica por `density_multiplier(n_heavy_elements, zone_width_pct)`.
     """
     category_max_weight: dict[str, float] = {}
     for e in elements:
@@ -41,27 +66,30 @@ def compute_zone_score(elements: list[SupportLevel]) -> float:
         weight = ELEMENT_WEIGHTS.get(e.element, 0.0)
         if weight > category_max_weight.get(cat, 0.0):
             category_max_weight[cat] = weight
-    return sum(category_max_weight.values())
+    score_base = sum(category_max_weight.values())
+    return score_base * density_multiplier(n_heavy_elements, zone_width_pct)
 
 
 def _is_dynamic_confirmer(element: str) -> bool:
-    """True si el elemento pertenece a una categoría confirmadora dinámica (avwap/hvn/divergence).
-
-    Mapea las sub-variantes de AVWAP a su categoría "avwap" antes de chequear contra
-    DYNAMIC_CONFIRMERS — el pseudocódigo literal de §6.1 no lo hace, pero el intent del SOP
-    es que cualquier AVWAP cuente como confirmador.
-    """
+    """True si el elemento es confirmador dinámico (avwap/hvn/divergence)."""
     category = "avwap" if element.startswith("avwap_") else element
     return category in DYNAMIC_CONFIRMERS
 
 
-def cluster_into_zones(
-    levels: list[SupportLevel], atr14_today: float, spot: float
-) -> list[SupportZone]:
-    """Agrupa levels en zonas, scorea cada una y las ordena (score desc, distance asc).
+def _count_heavy(elements: list[SupportLevel]) -> int:
+    """Cantidad de elementos con peso >= HEAVY_ELEMENT_WEIGHT_THRESHOLD."""
+    return sum(
+        1 for e in elements if ELEMENT_WEIGHTS.get(e.element, 0.0) >= HEAVY_ELEMENT_WEIGHT_THRESHOLD
+    )
 
-    Solo los niveles `side == "support"` (precio por debajo del spot) entran al clustering;
-    las resistencias se descartan. `spot` se sigue usando para calcular `distance_pct`.
+
+def cluster_into_zones(levels: list[SupportLevel], spot: float, atr14: float) -> list[SupportZone]:
+    """Agrupa niveles support en zonas (single-linkage, tolerance híbrida) y scorea (§6.1).
+
+    Solo entran los `side == "support"`. `tolerance = min(ATR14×factor, spot×pct)`. Post-cluster,
+    si el envelope (max-min) supera ZONE_MAX_WIDTH_PCT del centro, el cluster se descarta. Los
+    bounds son el envelope real ± buffer cosmético; el center es el punto medio del envelope;
+    `distance_pct` se mide contra `upper_bound` (borde superior real, no el centro).
     """
     eligible = sorted(
         (lvl for lvl in levels if lvl.side == "support"),
@@ -70,27 +98,42 @@ def cluster_into_zones(
     if not eligible:
         return []
 
-    tolerance = CLUSTERING_TOLERANCE_ATR * atr14_today
+    tolerance = min(CLUSTERING_TOLERANCE_ATR * atr14, spot * CLUSTERING_TOLERANCE_MAX_PCT)
     clusters: list[list[SupportLevel]] = [[eligible[0]]]
     for lvl in eligible[1:]:
-        if lvl.price - clusters[-1][-1].price <= tolerance:
-            clusters[-1].append(lvl)
-        else:
+        if lvl.price - clusters[-1][-1].price > tolerance:
             clusters.append([lvl])
+        else:
+            clusters[-1].append(lvl)
 
-    half_width = ZONE_WIDTH_ATR_MULTIPLIER * atr14_today
     zones: list[SupportZone] = []
     for cluster in clusters:
-        center = float(statistics.median([lvl.price for lvl in cluster]))
+        prices = [lvl.price for lvl in cluster]
+        min_price, max_price = min(prices), max(prices)
+        center = (min_price + max_price) / 2
+        if center <= 0:
+            continue
+        # Gate: envelope crudo (sin buffer) más ancho que el máximo → se descarta el cluster.
+        if (max_price - min_price) / center > ZONE_MAX_WIDTH_PCT:
+            continue
+
+        buffer = ZONE_BUFFER_PCT * center
+        lower_bound = min_price - buffer
+        upper_bound = max_price + buffer
+        center_price = (lower_bound + upper_bound) / 2
+        width_pct = (upper_bound - lower_bound) / center_price if center_price > 0 else 0.0
+        n_heavy = _count_heavy(cluster)
         zones.append(
             SupportZone(
-                center_price=center,
-                lower_bound=center - half_width,
-                upper_bound=center + half_width,
-                score=compute_zone_score(cluster),
+                center_price=center_price,
+                lower_bound=lower_bound,
+                upper_bound=upper_bound,
+                score=compute_zone_score(
+                    cluster, zone_width_pct=width_pct, n_heavy_elements=n_heavy
+                ),
                 elements=list(cluster),
                 has_dynamic_confirmer=any(_is_dynamic_confirmer(lvl.element) for lvl in cluster),
-                distance_pct=(spot - center) / spot,
+                distance_pct=(spot - upper_bound) / spot,
             )
         )
 

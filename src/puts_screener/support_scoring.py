@@ -131,7 +131,7 @@ def analyze_supports(candidate: ScreenedCandidate, data_service: DataService) ->
     candidato (OHLCV, earnings_history), así que actualmente no se usa.
     """
     levels, atr14_today, spot = _compute_all_levels(candidate)
-    zones = cluster_into_zones(levels, atr14_today, spot)
+    zones = cluster_into_zones(levels, spot, atr14_today)
     analysis = validate_and_rank(zones)
 
     # Señal informativa (Etapa 4): divergencia de la best_zone, NO suma al score.

@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
+from puts_screener.config_supports import (
+    ELEMENT_WEIGHTS,
+    HEAVY_ELEMENT_WEIGHT_THRESHOLD,
+    SCORE_TIER_THRESHOLDS,
+)
 from puts_screener.models_screening import ScreenedCandidate
 
 
@@ -28,15 +33,42 @@ class SupportLevel:
 
 @dataclass(frozen=True)
 class SupportZone:
-    """Cluster de SupportLevel cercanos (± 0.5×ATR14) con su score de confluencia."""
+    """Cluster de SupportLevel; bounds = envelope real de los elementos ± buffer (spec 06)."""
 
-    center_price: float  # mediana de los precios de los elementos
-    lower_bound: float  # center - 0.5×ATR14
-    upper_bound: float  # center + 0.5×ATR14
-    score: float  # suma ponderada por categoría (peso = máximo entre elementos de la categoría)
+    center_price: float  # centro del envelope: (lower_bound + upper_bound) / 2
+    lower_bound: float  # min(precios del cluster) - buffer
+    upper_bound: float  # max(precios del cluster) + buffer
+    score: float  # score_base (suma max-por-categoría) × density_multiplier (spec 06)
     elements: list[SupportLevel]  # elementos que componen la zona
     has_dynamic_confirmer: bool  # True si tiene avwap, hvn o divergence
-    distance_pct: float  # (spot - center_price) / spot
+    distance_pct: float  # (spot - upper_bound) / spot — contra el borde superior real (spec 06)
+
+    @property
+    def width(self) -> float:
+        """Ancho de la zona en unidades de precio."""
+        return self.upper_bound - self.lower_bound
+
+    @property
+    def width_pct(self) -> float:
+        """Ancho de la zona como fracción del center_price."""
+        return self.width / self.center_price if self.center_price > 0 else 0.0
+
+    @property
+    def n_heavy_elements(self) -> int:
+        """Cantidad de elementos individuales con peso >= HEAVY_ELEMENT_WEIGHT_THRESHOLD."""
+        return sum(
+            1
+            for e in self.elements
+            if ELEMENT_WEIGHTS.get(e.element, 0.0) >= HEAVY_ELEMENT_WEIGHT_THRESHOLD
+        )
+
+    @property
+    def score_tier(self) -> int:
+        """Tier 1-5 derivado del score final (capa de presentación)."""
+        for tier in sorted(SCORE_TIER_THRESHOLDS.keys(), reverse=True):
+            if self.score >= SCORE_TIER_THRESHOLDS[tier]:
+                return tier
+        return 1  # piso (zona válida tiene score >= 5.0 = tier 1)
 
 
 @dataclass(frozen=True)

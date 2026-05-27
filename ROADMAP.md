@@ -171,10 +171,27 @@ Automatización completa del run diario en GitHub Actions con publicación a Git
 
 **Pendiente humano** (no automatizable): setup one-time en GitHub Settings (Pages source = GitHub Actions, workflow permissions = read/write, environment `github-pages`) + primer `workflow_dispatch` manual + push de los 4 commits locales (`b49a950`, `d4fb3e5`, `aafb686`, `197bddc`).
 
+### Spec 06 — Clustering compacto + tier + macro banner + currency (Fase 1.5) ✅ Cerrada (2026-05-27)
+
+Cuatro mejoras coordinadas sobre el output del screener:
+
+- [x] **Tanda 1 — Clustering**: tolerance híbrida (`min(ATR×0.4, spot×1%)`), gate por ancho máximo absoluto (`ZONE_MAX_WIDTH_PCT=0.04`), bounds = envelope real de elementos (no ATR fijo). `compute_zone_score` con multiplicador de densidad (`MIN=0.85`, `MAX=1.5`). Properties nuevas en `SupportZone`: `width`, `width_pct`, `n_heavy_elements`, `score_tier`. 26 tests (17 ajustados + 9 nuevos). 392 verdes totales. Commit `0957a95`.
+
+- [x] **Tanda 2 — Display layer**: `format_price(value, currency)` helper en `formatting.py`. Macro events factorizados a banner global en HTML (no per-card). Score tier (estrellas + label) en cada card. Currency display dinámico (`$`, `€`, `£`, `p` para GBp, etc) desde `CompanyProfile.currency`. 404 tests verdes. Commit `b1a2f33`.
+
+- [x] **Tanda 3 — Calibración empírica**: run completo del universo combinado con código spec 06. Decisión: **no ajustar constantes**. Razones: (a) rate-limiting de yfinance contaminó ~530 de 751 skips en este run específico, muestra no representativa para calibrar; (b) tier shape observado (T5=1, T4=4, T3=4, T2=4, T1=0) es razonable para N=13; (c) la validación real son los crones reales en GitHub Actions (cache caliente, menos rate-limit). Sin commit de constantes.
+
+**Baseline empírico (run d303ab2e, sesgado por rate-limiting):**
+- Universo 998 → procesado 247 → Paso 1: 45 → Paso 2: 13
+- Top 3 por tier: BARC.L (T5, score 19.13), CL (T4, 16.43), CNP (T4, 15.00)
+- Width median: 1.71%, max: 4.15%. Distance median: 5.89%.
+- 13/13 best zones tienen confirmador dinámico.
+- 6/13 candidatos saturan el cap del density multiplier (×1.5) — observación para watch, no fix.
+
 ### Estadísticas
 
-- **Tests**: 383 verdes
-- **Commits**: 94
+- **Tests**: 404 verdes
+- **Commits**: 101
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -189,6 +206,8 @@ Automatización completa del run diario en GitHub Actions con publicación a Git
 - Setup one-time en GitHub Settings: Pages source = `GitHub Actions`, workflow permissions = read+write, aceptar environment `github-pages` en primer run.
 - Primer `workflow_dispatch` manual desde la UI para validar el ciclo completo (run + commit + deploy a Pages).
 - Validación humana del sitio publicado.
+- Push de los 3 commits locales de la spec 06: `2a9a896`, `0957a95`, `b1a2f33`.
+- Validar primer cron real post-push con código spec 06 (lunes 22 UTC). Mirar distribución de scores/tiers en condiciones de cache caliente y sin rate-limiting agudo. Recalibrar constantes solo si la distribución se ve mal después de 2-3 crones.
 
 Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + charts interactivos) o Fase 4 (data de opciones, futuro lejano).
 
@@ -198,7 +217,7 @@ Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + cha
 
 ### 3.1 Inmediato (próxima sesión)
 
-Validar Fase 3 en producción (ver §2 "Pendiente humano"). Una vez verificado el ciclo automático, arrancar Fase 5 (web app local) — ver §3.4. Etapa 6 del rework de scoring sigue postergada a Fase 4.
+Validar Fase 3 + Spec 06 en producción (ver §2 "Pendiente humano"). Una vez verificado al menos 1 cron con código spec 06 en condiciones normales, decidir próximo bloque: Spec 07 (UX visual de cards + strikes sugeridos heurísticos) o Fase 5 (web app local). Spec 08 (watchlist personal) y Spec 06bis (recalibración si hace falta) quedan en backlog priorizado por debajo.
 
 ### 3.2 Fase 3 — Producción
 
@@ -315,6 +334,10 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Endurecer firma `run_screening`/`run_final_pipeline` a dict-only**: hoy aceptan `list[str] | dict[str,set]` por compat con smoke tests. Path productivo siempre pasa dict.
 - **Sesgo a T1=100% en régimen alcista actual**: validación con --limit 200 sobre S&P 500 dio 13/13 T1. Esperable, pero anotar para confirmar en régimen distinto (T2 debería aparecer en pánicos, T4 en correcciones post-earnings, T3 en lateralizaciones macro).
 - **Calibración futura de `SCORE_MIN_VALID` y `MIN_HEAVY_ELEMENTS`**: thresholds provisionales 5.0 y 2 fijados con muestra de 200. Con varias corridas históricas semanales sobre el universo completo, definir si el output es estable o requiere ajuste.
+- **Watchlist personal extendiendo el universo (spec 08 candidata)**: archivo `data/watchlist.txt` con un ticker por línea, mergeable al universo configurado. Permite trackear nombres fuera de sp500/nasdaq100/stoxx600 (ej. CRWV, otros IPOs recientes, mid-caps con buen setup). Trade-off conocido: stocks con histórico corto (<4 años) no pueden calcular SMA200W, lo que limita su techo de score (heavies pesan SMA200D/W con peso 3.0). Útil igual: el ticker entra al universo y se evalúa con lo que tiene; el humano decide.
+- **Saturación del density multiplier en cap 1.5 (post-spec-06 watch)**: en el run de Tanda 3 calibración, 6 de 13 best zones pegaron el cap superior del multiplier (×1.5). El multiplier diferencia poco entre las zonas más densas (todas saturan). Si la observación se confirma en crones reales sin rate-limiting, considerar subir `REFERENCE_DENSITY` (de 100 a ~150) y/o `MAX_DENSITY_MULTIPLIER` (de 1.5 a ~1.75) para ampliar el rango lineal.
+- **T1 (banda 5.0-6.5) estructuralmente vacío (post-spec-06 watch)**: una zona con score base 5.0 multiplicado por ≥1.0 ya cae en T2 (≥7.5). T1 solo se alcanza con multiplier <1.0, que requiere densidad <100 — rara post-clustering compacto. No es bug; es consecuencia del diseño multiplier. Aceptable: tier 1 sigue siendo "raro" como debe ser.
+- **Gate de ancho silencioso (post-spec-06 observabilidad)**: `ZONE_MAX_WIDTH_PCT` descarta clusters con un `continue` en `cluster_into_zones` antes de persistir, sin loguear. No medible a posteriori cuántos clusters descartó. Si en algún momento se sospecha que descarta demasiado o demasiado poco, instrumentar un log o contador en el módulo. Bajo dolor actual.
 
 ---
 
@@ -362,6 +385,10 @@ Para no buscarlas en specs:
 - **2026-05-27 — Spec 05, `timeout-minutes: 45` provisional**: holgado contra smoke ~12m local. Margen 1.8-2.2x sobre worst case esperado con cache frío en CI. Subir si runs reales se acercan al techo.
 - **2026-05-27 — Spec 05, filename pattern con regex estricto** (`screening_YYYY-MM-DD_HHMM.(html|csv)`): solo archivos que matchean entran al histórico. Cualquier basura en `output/` (incluido `screening_latest.*`) es ignorada por el discover, aunque `latest.*` sí se copia explícitamente al bundle como home.
 - **2026-05-27 — Anotación factual (no decisión)**: el timestamp de los nombres viene de `datetime.now()` local. En Actions corre UTC (`_2200` consistente); local en runs manuales del usuario va a tener timestamp local. No bloqueante, no ambiguo (la fecha resuelve). Cambiar a UTC explícito en `config_reports.REPORT_FILENAME_PATTERN` lo arreglaría si en el futuro molesta.
+- **2026-05-27 — Spec 06, clustering compacto + density multiplier**: tolerance híbrida `min(ATR×0.4, spot×1%)`, gate por ancho máximo 4%, bounds = envelope real (no ATR fijo). `compute_zone_score` con factor de densidad `[0.85, 1.5]`. Premia confluencia compacta de heavies, penaliza zonas anchas. `REFERENCE_DENSITY=100`, `SLOPE=0.005`.
+- **2026-05-27 — Spec 06, distance_pct ahora se mide contra upper_bound** (no contra center_price). El upper es lo que toca primero el precio si baja, métrica más fiel al riesgo del strike.
+- **2026-05-27 — Spec 06, calibración Tanda 3 cerrada sin cambios a constantes**: el run de validación tuvo rate-limiting masivo de yfinance (~530 de 751 skips transitorios), muestra no representativa. Tier shape observado (T5=1, T4=4, T3=4, T2=4, T1=0) es razonable. La validación real son los crones de GitHub Actions con cache caliente. Recalibrar solo después de 2-3 crones limpios si la distribución se ve mal.
+- **2026-05-27 — Spec 06, GBp display como sufijo "p" sin conversión a libras**: yfinance retorna magnitudes de LSE en peniques; convertir requeriría dividir todos los valores numéricos (zonas, targets) y eso toca múltiples lugares. Más simple: mantener magnitud, agregar sufijo "p". Reversible bumpeando `GBp.divisor` a 100 en config_reports si en el futuro queremos libras.
 
 ---
 

@@ -1,0 +1,87 @@
+name: Daily screening
+
+on:
+  schedule:
+    - cron: "0 22 * * 1-5"   # 22:00 UTC lun-vie (1-2h post-cierre US según DST)
+  workflow_dispatch:          # permite disparo manual desde la UI
+
+# Required for actions/deploy-pages
+permissions:
+  contents: write   # commit + push de outputs
+  pages: write      # deploy a Pages
+  id-token: write   # OIDC para deploy-pages
+
+concurrency:
+  group: screening-cron
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo para rebase en push
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore yfinance cache
+        id: cache-restore
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: cache-yfinance-v1-${{ github.run_id }}
+          restore-keys: |
+            cache-yfinance-v1-
+
+      - name: Run screening pipeline
+        run: python -m puts_screener.run --universe sp500,nasdaq100,stoxx600
+
+      - name: Build Pages bundle
+        run: python -m puts_screener.publish_pages --output output --bundle docs-build
+
+      - name: Commit outputs and DB
+        env:
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+          GIT_COMMITTER_NAME: "github-actions[bot]"
+          GIT_COMMITTER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+        run: |
+          set -euo pipefail
+          git add output/screening_* data/screening_history.db
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore(daily): screening run $(date -u +'%Y-%m-%d %H:%M UTC')"
+            for attempt in 1 2 3; do
+              if git pull --rebase origin main && git push origin main; then
+                exit 0
+              fi
+              echo "Push attempt $attempt failed, retrying in 5s..."
+              sleep 5
+            done
+            echo "All push attempts failed."
+            exit 1
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-build
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

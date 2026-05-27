@@ -43,6 +43,39 @@ python -m puts_screener.run
 
 Outputs en `output/` y `data/`.
 
+## Fase 3 — Producción (GitHub Actions + Pages)
+
+El screening corre solo en GitHub Actions (cron diario post-cierre US) y publica el resultado a
+GitHub Pages: el último run como home + un histórico navegable. Workflow:
+[`.github/workflows/daily-screening.yml`](.github/workflows/daily-screening.yml). Detalle en
+[`specs/05_github_actions_pages.md`](specs/05_github_actions_pages.md).
+
+### Correr el workflow manualmente
+
+En GitHub: pestaña **Actions** → workflow **Daily screening** → botón **Run workflow** (usa el
+trigger `workflow_dispatch`). El cron automático corre a las **22:00 UTC, lunes a viernes**
+(1-2 h post-cierre US según DST).
+
+### Configuración one-time en GitHub (§7.1 de la spec)
+
+Una sola vez, en **Settings** del repo:
+
+1. **Pages → Source**: elegir `GitHub Actions` (NO `Deploy from a branch`).
+2. **Actions → General → Workflow permissions**: `Read and write permissions` (el toggle global
+   tiene que estar habilitado; el workflow ya declara los `permissions:` que necesita).
+3. **Environments → `github-pages`**: aceptar/crear el environment cuando el primer run lo cree.
+
+### Dónde queda el sitio
+
+Una vez deployado, el sitio queda en `https://<usuario>.github.io/<repo>/` (placeholder — se
+actualiza acá cuando el primer deploy esté hecho). `index.html` es el último run; `history.html`
+lista el histórico con links a cada corrida (HTML + CSV).
+
+El histórico canónico vive **commiteado en el repo** (`output/screening_*` + `data/screening_history.db`);
+Pages es solo una vista que se reconstruye en cada deploy desde `output/` vía
+`python -m puts_screener.publish_pages`.
+
 ## Estado
 
-En desarrollo activo. Fase 1 (MVP local).
+En desarrollo activo. Fase 1 (MVP local) completa; Fase 3 (automatización + Pages) en
+implementación.

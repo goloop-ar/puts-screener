@@ -51,3 +51,6 @@ logs/
 *.docx
 *.txt
 !requirements.txt
+
+# Pages bundle temporal (regenerable por publish_pages)
+docs-build/

@@ -142,23 +142,33 @@ def test_ex_dividend_provider_exception_isolated():
     assert report.tiene_eventos_binarios is False
 
 
-def test_macro_in_window_adds_flag():
+def test_check_binary_events_flags_legibles_no_macro():
+    """Spec 06: aunque haya FOMC en ventana, flags_legibles NO incluye macro (banner global)."""
+    calendar = [MacroEvent(date=_TODAY + timedelta(days=5), kind="fomc", description="FOMC")]
+    ds = _FakeDataService(earnings=None)
+    report = check_binary_events("X", _TODAY, ds, macro_calendar=calendar)
+    assert report.flags_legibles == []
+    assert not any("macro" in f.lower() for f in report.flags_legibles)
+
+
+def test_check_binary_events_macro_events_in_window_still_populated():
+    """Spec 06: el campo eventos_macro se sigue poblando (banner/persistencia), fuera de flags."""
     calendar = [MacroEvent(date=_TODAY + timedelta(days=5), kind="fomc", description="FOMC")]
     ds = _FakeDataService(earnings=None)
     report = check_binary_events("X", _TODAY, ds, macro_calendar=calendar)
     assert report.eventos_macro_en_45d is True
     assert len(report.eventos_macro) == 1
-    assert "Evento macro: fomc en 5 días (FOMC)" in report.flags_legibles
+    assert report.eventos_macro[0].kind == "fomc"
 
 
-def test_flags_order_earnings_exdiv_macro():
-    """Orden de severidad con los tres activos: earnings → ex_div → macro."""
+def test_flags_order_earnings_exdiv():
+    """Spec 06: flags_legibles = earnings → ex_div (macro ya no va a flags)."""
     ds = _FakeDataService(earnings=_earnings(10), ex_div=_ex_div(8, amount=0.50))
     calendar = [MacroEvent(date=_TODAY + timedelta(days=5), kind="cpi", description="CPI")]
     report = check_binary_events("X", _TODAY, ds, macro_calendar=calendar)
 
     flags = report.flags_legibles
-    assert len(flags) == 3
+    assert len(flags) == 2
     assert flags[0].startswith("Earnings en")
     assert flags[1].startswith("Ex-dividend en")
-    assert flags[2].startswith("Evento macro")
+    assert report.eventos_macro_en_45d is True  # el evento sigue en el campo

@@ -66,6 +66,21 @@
     }
     .momentum h4 { margin: 0 0 0.3rem; font-size: 0.85rem; color: var(--muted); }
     .momentum ul { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
+    .tier { margin: 0.2rem 0 0.05rem; }
+    .tier-stars { font-size: 1.3rem; letter-spacing: 1px; }
+    .tier-label { color: var(--muted); font-size: 0.85rem; margin-left: 0.4rem; }
+    .score-raw { color: var(--muted); font-size: 0.72rem; margin-bottom: 0.3rem; }
+    .macro-banner {
+      max-width: 1100px; margin: 1rem auto; padding: 12px 16px;
+      background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;
+    }
+    .macro-banner h2 { font-size: 1.1em; margin: 0 0 8px 0; }
+    .macro-banner ul { list-style: none; padding: 0; margin: 0; }
+    .macro-banner li { display: flex; gap: 12px; padding: 4px 0; align-items: center; flex-wrap: wrap; }
+    .macro-date { font-weight: 600; }
+    .macro-days { color: #856404; }
+    .macro-kind { padding: 2px 8px; border-radius: 4px; background: #ffc107; font-size: 0.85em; font-weight: 600; }
+    .macro-jurisdiction { padding: 1px 6px; border-radius: 3px; background: #f0f0f0; font-size: 0.85em; }
     footer { color: var(--muted); font-size: 0.8rem; text-align: center; }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -81,6 +96,22 @@
     <h1>Screening {{ run_date }}</h1>
     <p>Universo: {{ universe_size }} &middot; Pasan Paso 1: {{ n_paso_1 }} &middot; Pasan Paso 2: {{ n_paso_2 }}</p>
   </header>
+  {% if macro_events %}
+  <section class="macro-banner">
+    <h2>Eventos macro próximos (ventana 45 días)</h2>
+    <ul>
+    {% for ev in macro_events %}
+      <li>
+        <span class="macro-date">{{ ev.date }}</span>
+        <span class="macro-days">en {{ ev.days_until }} días</span>
+        <span class="macro-kind macro-kind-{{ ev.kind }}">{{ ev.kind_display }}</span>
+        <span class="macro-jurisdiction">{{ ev.jurisdiction }}</span>
+        <span class="macro-desc">{{ ev.description }}</span>
+      </li>
+    {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
   <main>
     {% for c in candidates %}
     <article class="card {{ c.tipo_T_lower }}">
@@ -98,18 +129,20 @@
         <span class="badge type-{{ c.tipo_T_lower }}">{{ c.tipo_T }}</span>
       </header>
 
+      <div class="tier">
+        <span class="tier-stars">{{ c.score_tier_stars }}</span>
+        <span class="tier-label">{{ c.score_tier_label }}</span>
+      </div>
+      <div class="score-raw">Score crudo: {{ "%.1f"|format(c.score) }}</div>
+
       <section class="zone">
         <div class="metric">
           <span class="label">Spot</span>
-          <span class="value">${{ c.spot }}</span>
+          <span class="value">{{ c.spot_formatted }}</span>
         </div>
         <div class="metric">
           <span class="label">Zona</span>
-          <span class="value">[${{ c.zona_min }} - ${{ c.zona_max }}]</span>
-        </div>
-        <div class="metric">
-          <span class="label">Score</span>
-          <span class="value">{{ "%.1f"|format(c.score) }}</span>
+          <span class="value">[{{ c.zona_min_formatted }} - {{ c.zona_max_formatted }}]</span>
         </div>
         <div class="metric">
           <span class="label">Distancia</span>
@@ -121,7 +154,7 @@
         <h4>Elementos ({{ c.n_elementos }})</h4>
         <ul>
           {% for element in c.elements[:8] %}
-          <li>{{ element.label }} @ ${{ element.price }}</li>
+          <li>{{ element.label }} @ {{ element.price_formatted }}</li>
           {% endfor %}
           {% if c.n_elementos > 8 %}
           <li class="more">+{{ c.n_elementos - 8 }} más</li>
@@ -131,7 +164,7 @@
 
       <section class="indicators">
         <div>RSI_d: {{ c.rsi_d }} &middot; RSI_w: {{ c.rsi_w }} &middot; MACD: {{ c.macd_estado }} &middot; Momentum: {{ c.momentum_score }}</div>
-        <div>PT: ${{ c.price_target }} ({{ c.pt_upside_pct }}%) &middot; Buy: {{ c.buy_ratio }}% &middot; Downgrades: {{ c.downgrades }}</div>
+        <div>PT: {{ c.price_target_formatted }} ({{ c.pt_upside_pct }}%) &middot; Buy: {{ c.buy_ratio }}% &middot; Downgrades: {{ c.downgrades }}</div>
       </section>
 
       {% if c.flags_legibles %}

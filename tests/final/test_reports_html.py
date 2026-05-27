@@ -1,8 +1,15 @@
-"""Tests del HTML report (spec 04 §8)."""
+"""Tests del HTML report (spec 04 §8 + spec 06: banner macro, tier, currency)."""
+
+from datetime import date
 
 from bs4 import BeautifulSoup
 
-from puts_screener.reports_html import write_html_report
+from puts_screener.macro_calendar import MacroEvent
+from puts_screener.reports_html import (
+    _format_candidate,
+    _format_macro_events_for_banner,
+    write_html_report,
+)
 
 _META = {
     "run_id": "test-run",
@@ -107,3 +114,73 @@ def test_html_latest_copy_created(tmp_path, final_candidate_factory):
     latest = tmp_path / "screening_latest.html"
     assert latest.exists()
     assert latest.read_text(encoding="utf-8") == path.read_text(encoding="utf-8")
+
+
+# --- spec 06: macro banner ---
+
+_BANNER_TODAY = date(2026, 5, 21)
+
+
+def test_format_macro_events_for_banner_sorts_by_date():
+    events = [
+        MacroEvent(date=date(2026, 6, 10), kind="cpi", description="CPI"),
+        MacroEvent(date=date(2026, 5, 30), kind="fomc", description="FOMC"),
+    ]
+    result = _format_macro_events_for_banner(events, _BANNER_TODAY)
+    assert [e["date"] for e in result] == ["2026-05-30", "2026-06-10"]
+
+
+def test_format_macro_events_for_banner_excludes_past():
+    events = [
+        MacroEvent(date=date(2026, 5, 10), kind="cpi", description="pasado"),
+        MacroEvent(date=date(2026, 5, 30), kind="fomc", description="futuro"),
+    ]
+    result = _format_macro_events_for_banner(events, _BANNER_TODAY)
+    assert [e["description"] for e in result] == ["futuro"]
+
+
+def test_format_macro_events_for_banner_includes_jurisdiction():
+    events = [MacroEvent(date=date(2026, 5, 30), kind="fomc", description="FOMC meeting")]
+    result = _format_macro_events_for_banner(events, _BANNER_TODAY)
+    assert result[0]["jurisdiction"] == "US"
+    assert result[0]["kind_display"] == "FOMC"
+    assert result[0]["days_until"] == 9
+
+
+def test_html_macro_banner_shown_once_not_per_card(tmp_path, final_candidate_factory):
+    """El banner macro aparece una sola vez (a nivel run), no en cada card."""
+    macro = [MacroEvent(date=date(2026, 6, 1), kind="fomc", description="FOMC")]
+    cands = [final_candidate_factory(ticker="AAA"), final_candidate_factory(ticker="BBB")]
+    path = write_html_report(cands, _META, output_dir=tmp_path, macro_events=macro)
+    soup = _soup(path)
+    assert len(soup.find_all("section", class_="macro-banner")) == 1
+    # ninguna card tiene el evento macro en sus flags
+    for card in soup.find_all("article", class_="card"):
+        flags_sec = card.find("section", class_="flags")
+        assert flags_sec is None or "FOMC" not in flags_sec.get_text()
+
+
+# --- spec 06: currency + tier en _format_candidate ---
+
+
+def test_format_candidate_includes_currency_formatted_fields(final_candidate_factory):
+    fc = final_candidate_factory(
+        ticker="BARC", currency="GBp", spot=453.55, price_target_mean=500.0
+    )
+    d = _format_candidate(fc)
+    assert d["currency"] == "GBp"
+    assert d["spot_formatted"] == "453.55p"
+    assert d["price_target_formatted"] == "500.00p"
+    assert d["zona_min_formatted"].endswith("p")
+    assert d["zona_max_formatted"].endswith("p")
+    assert all("price_formatted" in el for el in d["elements"])
+    usd = _format_candidate(final_candidate_factory(ticker="AAA", currency="USD", spot=100.0))
+    assert usd["spot_formatted"] == "$100.00"
+    assert "score_tier" in usd and "score_tier_stars" in usd and "score_tier_label" in usd
+
+
+def test_format_candidate_excludes_macro_from_flags_legibles(final_candidate_factory):
+    fc = final_candidate_factory(ticker="AAA", flags=["Earnings en 10 días (2026-05-31)"])
+    d = _format_candidate(fc)
+    assert d["flags_legibles"] == ["Earnings en 10 días (2026-05-31)"]
+    assert not any("macro" in f.lower() for f in d["flags_legibles"])

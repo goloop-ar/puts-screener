@@ -21,3 +21,38 @@ HTML_MAX_ELEMENTS_PER_CARD: int = 8  # si la zona tiene más, mostrar top 8 por 
 
 # === Orden de cards ===
 TYPE_PRIORITY: dict[str, int] = {"T1": 1, "T2": 2, "T4": 3, "T3": 4, "T5": 5}  # prioridad SOP §0
+
+# === Score tier labels (spec 06 §3.3; thresholds en config_supports.SCORE_TIER_THRESHOLDS) ===
+SCORE_TIER_LABELS: dict[int, tuple[str, str]] = {
+    5: ("⭐⭐⭐⭐⭐", "Confluencia excepcional"),
+    4: ("⭐⭐⭐⭐", "Fuerte"),
+    3: ("⭐⭐⭐", "Sólida"),
+    2: ("⭐⭐", "Borderline"),
+    1: ("⭐", "Mínimo viable"),
+}
+
+# === Currency display (spec 06 §3.4) ===
+# divisor reservado para futuro (GBp→GBP sería 100); hoy 1 en todos.
+CURRENCY_DISPLAY: dict[str, dict] = {
+    "USD": {"prefix": "$", "suffix": "", "divisor": 1},
+    "EUR": {"prefix": "€", "suffix": "", "divisor": 1},
+    "GBP": {"prefix": "£", "suffix": "", "divisor": 1},
+    "GBp": {"prefix": "", "suffix": "p", "divisor": 1},  # peniques: magnitud tal cual + sufijo p
+    "CHF": {"prefix": "", "suffix": " CHF", "divisor": 1},
+    "JPY": {"prefix": "¥", "suffix": "", "divisor": 1},
+    "DKK": {"prefix": "", "suffix": " kr", "divisor": 1},
+    "SEK": {"prefix": "", "suffix": " kr", "divisor": 1},
+    "NOK": {"prefix": "", "suffix": " kr", "divisor": 1},
+}
+# fallback si currency es None o no está en CURRENCY_DISPLAY
+CURRENCY_DEFAULT: dict = {"prefix": "$", "suffix": "", "divisor": 1}
+
+# === Jurisdicción por tipo de evento macro (spec 06 §6.5) ===
+JURISDICTION_BY_KIND: dict[str, str] = {
+    "fomc": "US",
+    "cpi": "US",
+    "ppi": "US",
+    "nfp": "US",
+    "gdp": "US",
+    "other": "—",
+}

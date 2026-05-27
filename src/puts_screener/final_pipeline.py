@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
 
-from puts_screener.binary_events import BinaryEventsReport, check_binary_events
+from puts_screener.binary_events import BinaryEventsReport, check_binary_events, check_macro_events
 from puts_screener.macro_calendar import MacroEvent, load_macro_calendar
 from puts_screener.models_final import FinalCandidate
 from puts_screener.models_support import SupportedCandidate
@@ -52,7 +52,8 @@ def _process_binary_events(
     """Corre el Paso 3 para un candidato. Si rompe, devuelve un reporte vacío con error."""
     ticker = supported.screened.ticker
     try:
-        report = check_binary_events(ticker, today, data_service, macro_calendar)
+        currency = supported.screened.profile.currency
+        report = check_binary_events(ticker, today, data_service, macro_calendar, currency=currency)
         return FinalCandidate(
             supported=supported, binary_events=report, fetched_at=datetime.now(), errors=[]
         )
@@ -124,8 +125,11 @@ def run_final_pipeline(
             "generated_at": timestamp.isoformat(timespec="seconds"),
             "version": _VERSION,
         }
+        macro_window = check_macro_events(today, macro_calendar)
         csv_path = write_csv_report(final_candidates, timestamp=timestamp)
-        html_path = write_html_report(final_candidates, run_metadata, timestamp=timestamp)
+        html_path = write_html_report(
+            final_candidates, run_metadata, timestamp=timestamp, macro_events=macro_window
+        )
         logger.info("  CSV report:  %s", csv_path)
         logger.info("  HTML report: %s", html_path)
 

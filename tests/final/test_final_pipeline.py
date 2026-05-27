@@ -35,7 +35,7 @@ def _wire_pipeline(monkeypatch, supported, *, persist_run_id="rid", boom_ticker=
         calls.append("support")
         return (run_id, supported)
 
-    def fake_check(ticker, today, data_service, macro_calendar):
+    def fake_check(ticker, today, data_service, macro_calendar, currency=None):
         calls.append(f"check:{ticker}")
         if ticker == boom_ticker:
             raise RuntimeError("synthetic boom")

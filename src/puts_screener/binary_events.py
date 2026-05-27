@@ -14,6 +14,7 @@ from puts_screener.config_reports import (
     EX_DIV_WINDOW_DAYS,
     MACRO_WINDOW_DAYS,
 )
+from puts_screener.formatting import format_price
 from puts_screener.macro_calendar import MacroEvent
 from puts_screener.providers.service import DataService
 
@@ -59,11 +60,16 @@ def check_binary_events(
     today: date,
     data_service: DataService,
     macro_calendar: list[MacroEvent],
+    currency: str | None = None,
 ) -> BinaryEventsReport:
     """Chequea todos los eventos binarios para el ticker (§5.3).
 
     Errores aislados: si `get_upcoming_earnings` falla, los campos de earnings quedan en None
     y no se propaga al resto del análisis.
+
+    Spec 06: `flags_legibles` contiene SOLO flags per-candidato (earnings + ex-div); los eventos
+    macro NO se agregan a las flags (se muestran en el banner global del HTML), aunque el campo
+    `eventos_macro` se sigue poblando. `currency` se usa para formatear el monto del ex-dividend.
     """
     # --- Earnings ---
     earnings_date: date | None = None
@@ -99,18 +105,18 @@ def check_binary_events(
     eventos_macro = check_macro_events(today, macro_calendar)
     eventos_macro_en_45d = len(eventos_macro) > 0
 
-    # --- Flags legibles (orden de severidad: earnings, ex_div, macro) ---
+    # --- Flags legibles per-candidato (orden de severidad: earnings, ex_div) ---
+    # Spec 06: los eventos macro NO van acá (se muestran en el banner global del run).
     flags: list[str] = []
     if earnings_en_45d and earnings_date is not None:
         flags.append(f"Earnings en {dias_a_earnings} días ({earnings_date.isoformat()})")
     if ex_div_en_45d:
         if ex_div_amount is not None:
-            flags.append(f"Ex-dividend en {dias_a_ex_div} días (${ex_div_amount:.2f})")
+            flags.append(
+                f"Ex-dividend en {dias_a_ex_div} días ({format_price(ex_div_amount, currency)})"
+            )
         else:
             flags.append(f"Ex-dividend en {dias_a_ex_div} días")
-    for e in eventos_macro:
-        dias = (e.date - today).days
-        flags.append(f"Evento macro: {e.kind} en {dias} días ({e.description})")
 
     tiene_eventos_binarios = earnings_en_45d or ex_div_en_45d or eventos_macro_en_45d
 

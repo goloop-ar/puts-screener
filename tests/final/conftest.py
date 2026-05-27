@@ -61,6 +61,7 @@ def _build_test_final_candidate(
     fetched_at=None,
     universes=(),
     momentum_signals=(),
+    currency="USD",
 ) -> FinalCandidate:
     """Construye un FinalCandidate completo con defaults razonables; overridear lo necesario."""
     elements = _DEFAULT_ELEMENTS if elements is None else elements
@@ -76,7 +77,7 @@ def _build_test_final_candidate(
         exchange=exchange,
         country=country,
         market_cap_usd=market_cap,
-        currency="USD",
+        currency=currency,
         avg_daily_volume_3m=5e6,
     )
     financials = FinancialSnapshot(

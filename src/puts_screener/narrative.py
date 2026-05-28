@@ -19,17 +19,6 @@ _TIPO_DESCRIPTION: dict[str, str] = {
     "T5": "wheel / acumulación",
 }
 
-# DUPLICACIÓN INTENCIONAL del label de tier para no acoplar la narrativa a la capa de display.
-# Copiado del 2º elemento de cada tupla de SCORE_TIER_LABELS (vive en config_reports, NO en
-# config_supports como decía la spec §6.3). Si SCORE_TIER_LABELS cambia, actualizar acá.
-_TIER_LABEL: dict[int, str] = {
-    5: "Confluencia excepcional",
-    4: "Fuerte",
-    3: "Sólida",
-    2: "Borderline",
-    1: "Mínimo viable",
-}
-
 _ELEMENT_CATEGORY: dict[str, str] = {
     "sma_200d": "sma_200",
     "sma_200w": "sma_200",
@@ -151,9 +140,6 @@ def _narrative_zone(fc: FinalCandidate) -> str:
         f"<strong>Zona.</strong> La zona detectada está en {low_str} – {high_str} "
         f"(ancho {zone.width_pct * 100:.1f}%, {width_q})."
     ]
-    tier_label = _TIER_LABEL.get(zone.score_tier, "")
-    if tier_label:
-        sentences.append(f"Es una <strong>{tier_label}</strong>.")
     if anchor_sentence:
         sentences.append(anchor_sentence)
     sentences.append(

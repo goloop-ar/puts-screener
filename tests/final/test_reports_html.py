@@ -2,6 +2,7 @@
 
 from datetime import date
 
+import pandas as pd
 from bs4 import BeautifulSoup
 
 from puts_screener.macro_calendar import MacroEvent
@@ -184,3 +185,45 @@ def test_format_candidate_excludes_macro_from_flags_legibles(final_candidate_fac
     d = _format_candidate(fc)
     assert d["flags_legibles"] == ["Earnings en 10 días (2026-05-31)"]
     assert not any("macro" in f.lower() for f in d["flags_legibles"])
+
+
+# --- spec 07: strikes + mini-chart en _format_candidate ---
+
+
+def _ohlcv(n_days: int, base: float = 100.0) -> pd.DataFrame:
+    idx = pd.bdate_range(end="2026-05-26", periods=n_days)
+    closes = [base + i * 0.05 for i in range(n_days)]
+    return pd.DataFrame(
+        {"Open": closes, "High": closes, "Low": closes, "Close": closes, "Volume": [1] * n_days},
+        index=idx,
+    )
+
+
+def test_format_candidate_includes_strikes(final_candidate_factory):
+    d = _format_candidate(final_candidate_factory(ticker="AAA"))
+    for key in ("strike_aggressive", "strike_natural", "strike_conservative"):
+        assert isinstance(d[key], float)
+    for key in (
+        "strike_aggressive_formatted",
+        "strike_natural_formatted",
+        "strike_conservative_formatted",
+    ):
+        assert isinstance(d[key], str)
+        assert d[key] != ""
+
+
+def test_format_candidate_includes_chart_svg(final_candidate_factory):
+    fc = final_candidate_factory(ticker="AAA")
+    fc.supported.screened.ohlcv_daily = _ohlcv(180)
+    d = _format_candidate(fc)
+    assert d["chart_svg"] != ""
+    assert "<svg" in d["chart_svg"]
+    assert d["chart_placeholder"] == ""
+
+
+def test_format_candidate_chart_placeholder_when_short_history(final_candidate_factory):
+    fc = final_candidate_factory(ticker="AAA")
+    fc.supported.screened.ohlcv_daily = _ohlcv(20)
+    d = _format_candidate(fc)
+    assert d["chart_svg"] == ""
+    assert d["chart_placeholder"] == "Histórico insuficiente para chart"

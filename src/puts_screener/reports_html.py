@@ -10,6 +10,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from puts_screener.chart_svg import render_mini_chart_svg
 from puts_screener.config_reports import (
     JURISDICTION_BY_KIND,
     REPORT_FILENAME_PATTERN,
@@ -21,7 +22,9 @@ from puts_screener.config_supports import ELEMENT_WEIGHTS
 from puts_screener.formatting import format_price
 from puts_screener.macro_calendar import MacroEvent
 from puts_screener.models_final import FinalCandidate
+from puts_screener.narrative import build_narrative
 from puts_screener.reports_csv import element_label, sort_final_candidates
+from puts_screener.strikes import compute_heuristic_strikes
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ def _format_candidate(fc: FinalCandidate) -> dict:
     classification = screened.classification
     analyst = screened.analyst
     tipo = (classification.tipo if classification else "") or ""
-    currency = screened.profile.currency  # ej "USD", "EUR", "GBp"; None → fallback USD
+    currency = screened.profile.currency or "USD"  # None → fallback USD (defensivo)
 
     # Elementos ordenados por peso desc (ELEMENT_WEIGHTS); el template muestra los primeros 8.
     elements = [
@@ -50,6 +53,23 @@ def _format_candidate(fc: FinalCandidate) -> dict:
     pt_mean = analyst.price_target_mean
     tier = zone.score_tier
     tier_stars, tier_label = SCORE_TIER_LABELS[tier]
+
+    # Strikes heurísticos + mini-chart SVG (spec 07). El OHLCV ya vive en screened (sin re-fetch).
+    strikes = compute_heuristic_strikes(
+        zone_lower_bound=zone.lower_bound,
+        zone_upper_bound=zone.upper_bound,
+        zone_center_price=zone.center_price,
+        spot=screened.spot,
+        atr_14=screened.atr_14,
+        currency=currency,
+    )
+    chart_svg = render_mini_chart_svg(
+        ohlcv_daily=screened.ohlcv_daily,
+        zone_lower_bound=zone.lower_bound,
+        zone_upper_bound=zone.upper_bound,
+        strikes=strikes,
+        currency=currency,
+    )
 
     return {
         "ticker": fc.ticker,
@@ -83,6 +103,16 @@ def _format_candidate(fc: FinalCandidate) -> dict:
         "downgrades": screened.downgrades_6w_count,
         "flags_legibles": list(fc.binary_events.flags_legibles),
         "momentum_signals": list(screened.momentum_signals),
+        # Strikes + mini-chart + narrativa (spec 07)
+        "strike_aggressive": strikes.aggressive,
+        "strike_natural": strikes.natural,
+        "strike_conservative": strikes.conservative,
+        "strike_aggressive_formatted": format_price(strikes.aggressive, currency),
+        "strike_natural_formatted": format_price(strikes.natural, currency),
+        "strike_conservative_formatted": format_price(strikes.conservative, currency),
+        "chart_svg": chart_svg,
+        "chart_placeholder": "" if chart_svg else "Histórico insuficiente para chart",
+        "narrative_html": build_narrative(fc),
     }
 
 

@@ -58,6 +58,16 @@ def sma_weekly(ohlcv_daily: pd.DataFrame, weeks: int) -> float:
     return float(weekly.rolling(weeks).mean().iloc[-1])
 
 
+def sma_weekly_series(ohlcv: pd.DataFrame, weeks: int) -> pd.Series:
+    """Series de SMA semanal sobre Close resampled a semanal (W-FRI).
+
+    Devuelve Series con index semanal. Las primeras `weeks-1` son NaN. IMPORTANTE:
+    el caller debe reindexar/forward-fill al index diario si quiere alinear con un
+    chart diario. Esta función NO lo hace.
+    """
+    return _weekly_close(ohlcv).rolling(weeks).mean()
+
+
 def sma_daily(ohlcv_daily: pd.DataFrame, length: int) -> float | None:
     """SMA simple sobre cierres diarios. None si hay menos de `length` días."""
     close = ohlcv_daily["Close"]
@@ -66,12 +76,34 @@ def sma_daily(ohlcv_daily: pd.DataFrame, length: int) -> float | None:
     return float(close.rolling(length).mean().iloc[-1])
 
 
+def sma_daily_series(ohlcv: pd.DataFrame, length: int) -> pd.Series:
+    """Series completa de SMA diaria sobre Close.
+
+    Las primeras `length-1` filas son NaN. Devuelve Series con el mismo index
+    que `ohlcv`.
+    """
+    return ohlcv["Close"].rolling(length).mean()
+
+
 def ema_daily(ohlcv_daily: pd.DataFrame, length: int) -> float | None:
     """EMA sobre cierres diarios (adjust=False). None si hay menos de `length` días."""
     close = ohlcv_daily["Close"]
     if len(close) < length:
         return None
     return float(close.ewm(span=length, adjust=False).mean().iloc[-1])
+
+
+def ema_daily_series(ohlcv: pd.DataFrame, length: int) -> pd.Series:
+    """Series completa de EMA diaria sobre Close (span=length, adjust=False).
+
+    Devuelve Series con el mismo index que `ohlcv`. Si `len(ohlcv) < length`,
+    Series llena de NaN del mismo largo (consistente con `ema_daily` scalar que
+    retorna None en ese caso).
+    """
+    close = ohlcv["Close"]
+    if len(close) < length:
+        return pd.Series(float("nan"), index=close.index)
+    return close.ewm(span=length, adjust=False).mean()
 
 
 def rsi_daily(ohlcv_daily: pd.DataFrame, length: int = _RSI_LENGTH) -> float:

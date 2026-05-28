@@ -122,6 +122,15 @@ def read_ohlcv_slice(ticker: str, interval: str, start: date, end: date) -> pd.D
     return df.loc[start_ts:end_ts]
 
 
+def read_ohlcv_raw(ticker: str, interval: str = "1d") -> pd.DataFrame | None:
+    """Lee el parquet de OHLCV cacheado SIN chequeo de TTL.
+
+    Para uso de apps de solo-lectura sobre runs históricos. Devuelve None si el
+    parquet no existe. NO valida edad del archivo.
+    """
+    return read_parquet(cache_path("ohlcv", f"{ticker}_{interval}.parquet"))
+
+
 def write_ohlcv(ticker: str, interval: str, df: pd.DataFrame) -> None:
     """Persiste el DataFrame OHLCV completo.
 

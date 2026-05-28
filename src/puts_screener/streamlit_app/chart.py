@@ -12,6 +12,15 @@ from dataclasses import dataclass
 import pandas as pd
 import plotly.graph_objects as go
 
+from puts_screener.config_streamlit import (
+    STREAMLIT_CANDLE_DECREASING,
+    STREAMLIT_CANDLE_INCREASING,
+    STREAMLIT_CHART_HEIGHT_PX,
+    STREAMLIT_MA_COLORS,
+    STREAMLIT_SPOT_LINE_COLOR,
+    STREAMLIT_STRIKE_COLORS,
+    STREAMLIT_ZONE_BAND_COLOR,
+)
 from puts_screener.formatting import format_price
 from puts_screener.indicators import (
     ema_daily_series,
@@ -20,24 +29,6 @@ from puts_screener.indicators import (
 )
 from puts_screener.providers.cache import read_ohlcv_raw
 from puts_screener.streamlit_app.models import CandidateDetail
-
-# Constantes — Tanda 3 las moverá a config_streamlit.py.
-_CHART_HEIGHT_PX = 600
-_ZONE_BAND_COLOR = "rgba(0, 180, 0, 0.18)"
-_ZONE_BAND_OPACITY = 0.18  # ya implícito en el rgba; lo dejamos por claridad.
-_MA_COLORS = {
-    "SMA200W": "#FF6B35",
-    "EMA200D": "#004E89",
-    "SMA50D": "#9B59B6",
-}
-_STRIKE_COLORS = {
-    "aggressive": "#E74C3C",
-    "natural": "#F39C12",
-    "conservative": "#27AE60",
-}
-_SPOT_LINE_COLOR = "#555"
-_CANDLE_INCREASING = "#26A69A"
-_CANDLE_DECREASING = "#EF5350"
 
 
 @dataclass(frozen=True)
@@ -123,8 +114,8 @@ def build_plotly_figure(payload: ChartPayload) -> go.Figure:
             low=payload.ohlcv["Low"],
             close=payload.ohlcv["Close"],
             name=payload.ticker,
-            increasing_line_color=_CANDLE_INCREASING,
-            decreasing_line_color=_CANDLE_DECREASING,
+            increasing_line_color=STREAMLIT_CANDLE_INCREASING,
+            decreasing_line_color=STREAMLIT_CANDLE_DECREASING,
         )
     )
 
@@ -138,7 +129,7 @@ def build_plotly_figure(payload: ChartPayload) -> go.Figure:
                 x=series.index,
                 y=series.values,
                 mode="lines",
-                line={"color": _MA_COLORS[label], "width": 1.5},
+                line={"color": STREAMLIT_MA_COLORS[label], "width": 1.5},
                 name=label,
             )
         )
@@ -147,7 +138,7 @@ def build_plotly_figure(payload: ChartPayload) -> go.Figure:
         fig.add_hrect(
             y0=payload.zone_lower,
             y1=payload.zone_upper,
-            fillcolor=_ZONE_BAND_COLOR,
+            fillcolor=STREAMLIT_ZONE_BAND_COLOR,
             line_width=0,
             annotation_text="Zona",
             annotation_position="top left",
@@ -156,7 +147,7 @@ def build_plotly_figure(payload: ChartPayload) -> go.Figure:
     fig.add_hline(
         y=payload.spot,
         line_dash="dot",
-        line_color=_SPOT_LINE_COLOR,
+        line_color=STREAMLIT_SPOT_LINE_COLOR,
         annotation_text=f"Spot {format_price(payload.spot, payload.currency)}",
         annotation_position="right",
     )
@@ -168,13 +159,13 @@ def build_plotly_figure(payload: ChartPayload) -> go.Figure:
         fig.add_hline(
             y=value,
             line_dash="dash",
-            line_color=_STRIKE_COLORS[kind],
+            line_color=STREAMLIT_STRIKE_COLORS[kind],
             annotation_text=f"{kind} {format_price(value, payload.currency)}",
             annotation_position="right",
         )
 
     fig.update_layout(
-        height=_CHART_HEIGHT_PX,
+        height=STREAMLIT_CHART_HEIGHT_PX,
         xaxis_rangeslider_visible=False,
         hovermode="x unified",
         title=f"{payload.ticker} ({payload.currency})",

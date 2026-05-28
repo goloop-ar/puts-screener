@@ -74,6 +74,35 @@ El histórico canónico vive **commiteado en el repo** (`output/screening_*` + `
 Pages es solo una vista que se reconstruye en cada deploy desde `output/` vía
 `python -m puts_screener.publish_pages`.
 
+## Fase 5 — App local (solo-lectura)
+
+Web app local para exploración interactiva de los runs persistidos en
+`screening_history.db`. No re-ejecuta el pipeline — es una capa de
+visualización sobre los artefactos ya generados.
+
+### Cómo correrla
+
+```bash
+.venv/Scripts/python.exe -m streamlit run src/puts_screener/streamlit_app/app.py
+```
+
+O en macOS/Linux:
+
+```bash
+.venv/bin/python -m streamlit run src/puts_screener/streamlit_app/app.py
+```
+
+Streamlit abre el navegador automáticamente en http://localhost:8501.
+
+### Qué muestra
+
+- Sidebar: selector de run (default = último) + filtros por tier, sector,
+  score mínimo y eventos binarios.
+- Tabla principal de candidatos del run elegido.
+- Vista de detalle por candidato: chart interactivo con candlestick + MAs
+  (SMA200W, EMA200D, SMA50D) + zona de soporte sombreada + spot + strikes,
+  datos del Paso 1/2/3 y strikes heurísticos.
+
 ## Estado
 
 En desarrollo activo. Fase 1 (MVP local) completa; Fase 3 (automatización + Pages) en

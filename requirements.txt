@@ -23,3 +23,7 @@ pytest>=8.0
 pytest-mock>=3.12
 responses>=0.25
 ruff>=0.5
+
+# Fase 5 — UI local (spec 09)
+streamlit>=1.39
+plotly>=5.24

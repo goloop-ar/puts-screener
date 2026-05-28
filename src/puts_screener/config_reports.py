@@ -56,3 +56,25 @@ JURISDICTION_BY_KIND: dict[str, str] = {
     "gdp": "US",
     "other": "—",
 }
+
+# === Strikes heurísticos (spec 07) ===
+STRIKE_ATR_MULTIPLIER: float = 1.0
+
+STRIKE_GRID_USD: tuple[tuple[float, float], ...] = (
+    (25.0, 0.5),
+    (100.0, 1.0),
+    (250.0, 2.5),
+    (float("inf"), 5.0),
+)
+STRIKE_GRID_EUR: tuple[tuple[float, float], ...] = STRIKE_GRID_USD
+STRIKE_GRID_CHF: tuple[tuple[float, float], ...] = STRIKE_GRID_USD
+STRIKE_GRID_GBP: tuple[tuple[float, float], ...] = STRIKE_GRID_USD
+
+STRIKE_GRID_GBP_PENCE: tuple[tuple[float, float], ...] = (
+    (2500.0, 50.0),
+    (10000.0, 100.0),
+    (25000.0, 250.0),
+    (float("inf"), 500.0),
+)
+
+STRIKE_GRID_FALLBACK_PCT: float = 0.01

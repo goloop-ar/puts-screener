@@ -8,6 +8,7 @@
     :root {
       --bg: #f7f8fa; --card-bg: #ffffff; --border: #e2e5ea; --text: #1c2330;
       --muted: #6b7280; --flag-bg: #fff8e1; --flag-border: #f59e0b; --flag-text: #b45309;
+      --strikes-bg: #f1f5f9;
     }
     * { box-sizing: border-box; }
     body {
@@ -19,7 +20,7 @@
     header.page p { margin: 0; color: var(--muted); }
     main {
       display: grid; gap: 1rem;
-      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      grid-template-columns: 1fr;
     }
     .card {
       background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
@@ -82,13 +83,95 @@
     .macro-kind { padding: 2px 8px; border-radius: 4px; background: #ffc107; font-size: 0.85em; font-weight: 600; }
     .macro-jurisdiction { padding: 1px 6px; border-radius: 3px; background: #f0f0f0; font-size: 0.85em; }
     footer { color: var(--muted); font-size: 0.8rem; text-align: center; }
+    .card-split {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 1rem;
+      margin-top: 0.75rem;
+      align-items: start;
+    }
+    .narrative { margin-bottom: 0.6rem; }
+    .narrative p {
+      margin: 0.3rem 0;
+      font-size: 0.9rem;
+      line-height: 1.55;
+    }
+    .narrative p strong:first-child { color: var(--text); }
+    .mini-chart {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 200px;
+    }
+    .mini-chart svg {
+      width: 100%;
+      height: auto;
+      max-width: 480px;
+      color: var(--text);
+    }
+    .mini-chart .placeholder {
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-style: italic;
+    }
+    .strikes-banner {
+      margin-top: 0.8rem;
+      padding: 0.7rem 0.9rem;
+      background: var(--strikes-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1.5rem;
+      align-items: baseline;
+      justify-content: space-between;
+    }
+    .strikes-banner .strikes-title {
+      font-weight: 700;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-right: 1rem;
+    }
+    .strikes-banner .strikes-list {
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .strikes-banner .strike {
+      display: inline-flex;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.95rem;
+      font-weight: 600;
+    }
+    .strikes-banner .dot {
+      width: 0.7rem;
+      height: 0.7rem;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .strikes-banner .dot.aggressive { background: #dc2626; }
+    .strikes-banner .dot.natural { background: #f97316; }
+    .strikes-banner .dot.conservative { background: #16a34a; }
+    .strikes-banner .yield-note {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-style: italic;
+    }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #13161c; --card-bg: #1b1f27; --border: #2a2f3a; --text: #e6e9ef;
         --muted: #9aa3b2; --flag-bg: #2a2410; --flag-text: #fbbf24;
+        --strikes-bg: #232a36;
       }
     }
     @media (max-width: 480px) { main { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) {
+      .card-split { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -150,21 +233,48 @@
         </div>
       </section>
 
-      <section class="elements">
-        <h4>Elementos ({{ c.n_elementos }})</h4>
-        <ul>
-          {% for element in c.elements[:8] %}
-          <li>{{ element.label }} @ {{ element.price_formatted }}</li>
-          {% endfor %}
-          {% if c.n_elementos > 8 %}
-          <li class="more">+{{ c.n_elementos - 8 }} más</li>
+      <div class="card-split">
+        <div class="card-split-text">
+          {% if c.narrative_html %}
+          <section class="narrative">
+            {{ c.narrative_html | safe }}
+          </section>
           {% endif %}
-        </ul>
-      </section>
 
-      <section class="indicators">
-        <div>RSI_d: {{ c.rsi_d }} &middot; RSI_w: {{ c.rsi_w }} &middot; MACD: {{ c.macd_estado }} &middot; Momentum: {{ c.momentum_score }}</div>
-        <div>PT: {{ c.price_target_formatted }} ({{ c.pt_upside_pct }}%) &middot; Buy: {{ c.buy_ratio }}% &middot; Downgrades: {{ c.downgrades }}</div>
+          <section class="elements">
+            <h4>Elementos ({{ c.n_elementos }})</h4>
+            <ul>
+              {% for element in c.elements %}
+              <li>{{ element.label }} @ {{ element.price_formatted }}</li>
+              {% endfor %}
+            </ul>
+          </section>
+
+          <section class="indicators">
+            <div>RSI_d: {{ c.rsi_d }} &middot; RSI_w: {{ c.rsi_w }} &middot; MACD: {{ c.macd_estado }} &middot; Momentum: {{ c.momentum_score }}</div>
+            <div>PT: {{ c.price_target_formatted }} ({{ c.pt_upside_pct }}%) &middot; Buy: {{ c.buy_ratio }}% &middot; Downgrades: {{ c.downgrades }}</div>
+          </section>
+        </div>
+
+        <div class="mini-chart">
+          {% if c.chart_svg %}
+          {{ c.chart_svg | safe }}
+          {% else %}
+          <div class="placeholder">{{ c.chart_placeholder }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <section class="strikes-banner">
+        <div>
+          <span class="strikes-title">Strikes sugeridos</span>
+          <div class="strikes-list">
+            <span class="strike"><span class="dot aggressive"></span>Aggressive {{ c.strike_aggressive_formatted }}</span>
+            <span class="strike"><span class="dot natural"></span>Natural {{ c.strike_natural_formatted }}</span>
+            <span class="strike"><span class="dot conservative"></span>Conservative {{ c.strike_conservative_formatted }}</span>
+          </div>
+        </div>
+        <span class="yield-note">verificar yield ≥1.5%/mes en broker</span>
       </section>
 
       {% if c.flags_legibles %}

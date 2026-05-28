@@ -21,13 +21,16 @@ def test_csv_created_with_expected_name(tmp_path, final_candidate_factory):
     assert path.exists()
 
 
-def test_csv_has_41_columns_in_exact_order(tmp_path, final_candidate_factory):
+def test_csv_has_44_columns_in_exact_order(tmp_path, final_candidate_factory):
     path = write_csv_report([final_candidate_factory()], output_dir=tmp_path)
     fieldnames, _ = _read_csv(path)
     assert fieldnames == list(CSV_COLUMNS)
-    assert len(fieldnames) == 41
+    assert len(fieldnames) == 44
     assert fieldnames[39] == "universes"  # columna 40
-    assert fieldnames[40] == "momentum_signals"  # columna 41, al final
+    assert fieldnames[40] == "momentum_signals"  # columna 41
+    assert fieldnames[41] == "strike_aggressive"  # columna 42 (spec 07)
+    assert fieldnames[42] == "strike_natural"  # columna 43
+    assert fieldnames[43] == "strike_conservative"  # columna 44, al final
 
 
 def test_csv_score_formatted_one_decimal(tmp_path, final_candidate_factory):

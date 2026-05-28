@@ -17,6 +17,7 @@ from pathlib import Path
 from puts_screener.models_final import FinalCandidate
 from puts_screener.models_screening import ScreenedCandidate
 from puts_screener.models_support import SupportedCandidate, SupportLevel, SupportZone
+from puts_screener.strikes import compute_heuristic_strikes
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +188,10 @@ _CANDIDATE_MIGRATION_COLUMNS: dict[str, str] = {
     "flags_legibles_json": "TEXT",
     "universes_json": "TEXT",  # Etapa 1 — pertenencia a universos (JSON: lista ordenada)
     "momentum_signals_json": "TEXT",  # Etapa 4 — señales de divergencia (JSON: lista)
+    "strike_aggressive": "REAL",  # spec 07 — strikes heurísticos sugeridos (NULL si no pasa Paso 2)
+    "strike_natural": "REAL",
+    "strike_conservative": "REAL",
+    "strike_grid_unit": "REAL",
 }
 
 # Columnas agregadas a `runs` por specs posteriores. Misma migración idempotente que candidates.
@@ -390,12 +395,39 @@ def save_support_analysis(
                         reason,
                     ),
                 )
+            # Strikes heurísticos derivados de la best_zone (spec 07). Recomputados acá para que
+            # la persistencia no dependa del dict del template; costo despreciable. NULL si no
+            # hay best_zone (no pasó Paso 2).
+            best = sc.analysis.best_zone
+            if best is not None:
+                strikes = compute_heuristic_strikes(
+                    zone_lower_bound=best.lower_bound,
+                    zone_upper_bound=best.upper_bound,
+                    zone_center_price=best.center_price,
+                    spot=sc.screened.spot,
+                    atr_14=sc.screened.atr_14,
+                    currency=sc.screened.profile.currency or "USD",
+                )
+                s_agg, s_nat, s_con, s_grid = (
+                    strikes.aggressive,
+                    strikes.natural,
+                    strikes.conservative,
+                    strikes.grid_unit,
+                )
+            else:
+                s_agg = s_nat = s_con = s_grid = None
             conn.execute(
-                "UPDATE candidates SET pasa_paso_2 = ?, momentum_signals_json = ? "
+                "UPDATE candidates SET pasa_paso_2 = ?, momentum_signals_json = ?, "
+                "strike_aggressive = ?, strike_natural = ?, strike_conservative = ?, "
+                "strike_grid_unit = ? "
                 "WHERE run_id = ? AND ticker = ?",
                 (
                     1 if sc.pasa_paso_2 else 0,
                     json.dumps(list(sc.screened.momentum_signals)),
+                    s_agg,
+                    s_nat,
+                    s_con,
+                    s_grid,
                     run_id,
                     ticker,
                 ),

@@ -18,6 +18,7 @@ from puts_screener.config_reports import (
     TYPE_PRIORITY,
 )
 from puts_screener.models_final import FinalCandidate
+from puts_screener.strikes import compute_heuristic_strikes
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,9 @@ CSV_COLUMNS: tuple[str, ...] = (
     "fetched_at",
     "universes",
     "momentum_signals",
+    "strike_aggressive",
+    "strike_natural",
+    "strike_conservative",
 )
 
 
@@ -117,6 +121,15 @@ def _build_row(fc: FinalCandidate) -> dict:
     classification = screened.classification
     zone = fc.supported.analysis.best_zone
     be = fc.binary_events
+    # _build_row solo se llama sobre passes_all_steps → zone no es None (spec 07).
+    strikes = compute_heuristic_strikes(
+        zone_lower_bound=zone.lower_bound,
+        zone_upper_bound=zone.upper_bound,
+        zone_center_price=zone.center_price,
+        spot=screened.spot,
+        atr_14=screened.atr_14,
+        currency=profile.currency or "USD",
+    )
 
     row = {
         "ticker": fc.ticker,
@@ -160,6 +173,9 @@ def _build_row(fc: FinalCandidate) -> dict:
         "fetched_at": _iso_or_none(fc.fetched_at),
         "universes": "|".join(screened.universes),
         "momentum_signals": "|".join(screened.momentum_signals),
+        "strike_aggressive": strikes.aggressive,
+        "strike_natural": strikes.natural,
+        "strike_conservative": strikes.conservative,
     }
     # None → "" (no "None"), explícito para no depender del comportamiento del módulo csv.
     return {key: ("" if value is None else value) for key, value in row.items()}

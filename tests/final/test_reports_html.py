@@ -63,15 +63,16 @@ def test_html_cards_sorted_by_type_score(tmp_path, final_candidate_factory):
     assert tickers == ["T1S6", "T1S5", "T2S4"]
 
 
-def test_html_truncates_elements_over_8(tmp_path, final_candidate_factory):
+def test_html_renders_all_elements_no_truncation(tmp_path, final_candidate_factory):
+    """Spec 07: cards full-width muestran todos los elementos, sin truncado ni '+N más'."""
     elements = [("hvn", 100.0 - i, 1) for i in range(10)]
     fc = final_candidate_factory(ticker="MANY", elements=elements)
     path = write_html_report([fc], _META, output_dir=tmp_path)
     soup = _soup(path)
     card = soup.find("article", class_="card")
     items = card.find("section", class_="elements").find_all("li")
-    assert len(items) == 9  # 8 elementos + 1 "+N más"
-    assert "+2 más" in card.get_text()
+    assert len(items) == 10  # todos los elementos
+    assert card.find("li", class_="more") is None  # sin "+N más"
 
 
 def test_html_universe_badges_single(tmp_path, final_candidate_factory):

@@ -5,7 +5,13 @@ import sqlite3
 from datetime import date, datetime
 
 from puts_screener.macro_calendar import MacroEvent
-from puts_screener.persistence import _BINARY_EVENT_COLUMNS, save_binary_events, save_run
+from puts_screener.persistence import (
+    _BINARY_EVENT_COLUMNS,
+    save_binary_events,
+    save_run,
+    save_support_analysis,
+)
+from puts_screener.strikes import compute_heuristic_strikes
 
 
 def _persist(final_candidates, db):
@@ -107,3 +113,40 @@ def test_persists_even_when_not_passing_paso_2(tmp_path, final_candidate_factory
     assert row["earnings_date"] == "2026-05-26"
     assert row["earnings_en_45d"] == 1
     assert row["tiene_eventos_binarios"] == 1
+
+
+# --- spec 07: strikes heurísticos persistidos en save_support_analysis ---
+
+
+def test_migrate_adds_strike_columns(tmp_path):
+    db = tmp_path / "strikes.db"
+    save_support_analysis("run1", [], db_path=db)
+    save_support_analysis("run1", [], db_path=db)  # 2ª vez: idempotente, no debe romper
+    conn = sqlite3.connect(db)
+    types = {r[1]: r[2] for r in conn.execute("PRAGMA table_info(candidates)").fetchall()}
+    conn.close()
+    for col in ("strike_aggressive", "strike_natural", "strike_conservative", "strike_grid_unit"):
+        assert types[col] == "REAL"
+
+
+def test_persist_candidate_with_strikes(tmp_path, final_candidate_factory):
+    db = tmp_path / "strikes.db"
+    fc = final_candidate_factory(ticker="STK", tipo="T1", currency="USD", spot=100.0)
+    screened = fc.supported.screened
+    zone = fc.supported.analysis.best_zone
+    run_id = save_run([screened], universe_size=1, started_at=datetime.now(), db_path=db)
+    save_support_analysis(run_id, [fc.supported], db_path=db)
+
+    row = _read(db, run_id, "STK")
+    expected = compute_heuristic_strikes(
+        zone_lower_bound=zone.lower_bound,
+        zone_upper_bound=zone.upper_bound,
+        zone_center_price=zone.center_price,
+        spot=screened.spot,
+        atr_14=screened.atr_14,
+        currency="USD",
+    )
+    assert row["strike_aggressive"] == expected.aggressive
+    assert row["strike_natural"] == expected.natural
+    assert row["strike_conservative"] == expected.conservative
+    assert row["strike_grid_unit"] == expected.grid_unit

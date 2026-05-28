@@ -176,8 +176,7 @@ Automatización completa del run diario en GitHub Actions con publicación a Git
 - Pages publicada y navegable: index = último run, `history.html` lista corridas con links funcionales. Output visual de specs 07 + 08 revisado en el sitio y OK.
 - Suite en 454 tests verdes. Cron verificado en main: `"0 11 * * 1-5"` (11:00 UTC ≈ 8 ARG), commit y push confirmados.
 - Bug post-validación: hrefs root-absolutos en `history.html` causaban 404 al clickear links del histórico bajo `/puts-screener/`. Fix: paths relativos en template + eliminación del parámetro vestigial `site_base_url` (commit `0a6390d`). Test de regresión `test_history_index_uses_relative_hrefs` agregado. Validado end-to-end vía `workflow_dispatch` (run `26589402903`, success 26m18s) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod.
-
-⏸️ **Pendiente único:** observar el primer run disparado por `schedule` (no manual), esperado el primer día hábil siguiente a las 11:00 UTC. El no-show del schedule del 2026-05-28 se atribuye a comportamiento conocido de GitHub Actions (primera ventana tras cambiar el cron + congestión top-of-hour), no a error de config.
+- ✅ **Schedule run automático validado (2026-05-28)**: run `26598622082` disparó por `schedule` a las 19:54 UTC (~16:54 ARG, no 11:00 UTC — GitHub Actions sigue agendando con flexibilidad de horario) y completó en 24 min con todas las actions Node 24-compatibles. Confirma que (a) el cron auto-dispara sin intervención y (b) el bump de Node 24 no rompió la cadena.
 
 ### Spec 06 — Clustering compacto + tier + macro banner + currency (Fase 1.5) ✅ Cerrada (2026-05-27)
 
@@ -255,10 +254,60 @@ Implementación en una sola tanda:
 
 **Tests:** 436 (post-spec-07) → 453 (post-spec-08). +17 tests nuevos.
 
+### Spec 09 — Streamlit MVP solo-lectura (Fase 5) ✅ Cerrada (2026-05-28)
+
+Web app local para exploración interactiva de los runs persistidos en
+`screening_history.db`. Forma de uso: `streamlit run -m
+puts_screener.streamlit_app.app` cuando el usuario quiere explorar. No
+re-ejecuta el pipeline (solo-lectura).
+
+Implementación en 4 tandas:
+
+- [x] **Tanda 0**: helpers de series en `indicators.py` (`sma_daily_series`,
+  `ema_daily_series`, `sma_weekly_series`) + `read_ohlcv_raw` en `cache.py`
+  (sin TTL, para apps de solo-lectura sobre runs históricos). 10 tests
+  nuevos (464 verdes totales). Commit `4a56da0`.
+- [x] **Tanda 1**: `models.py` (`RunSummary`, `CandidateRow`,
+  `CandidateDetail`) + `data_loader.py` (4 queries con `is_best=1` flag) +
+  `filters.py` (`FilterState` + `apply_filters`). Lógica pura sin Streamlit,
+  25 tests nuevos (489 verdes). Commit `039024c`.
+- [x] **Tanda 2**: `chart.py` con `build_chart_payload` y
+  `build_plotly_figure`. Series MAs calculadas sobre OHLCV completo antes
+  de truncar (para que el chart muestre valores desde el inicio del periodo).
+  12 tests nuevos (501 verdes). Commit `4572542`.
+- [x] **Tanda 3**: capa Streamlit final — `config_streamlit.py` con
+  constantes (migración desde inline en chart.py), `views.py` con
+  `render_sidebar_run_selector`, `render_sidebar_filters`,
+  `render_candidates_table`, `render_candidate_detail` + helpers cacheados
+  `@st.cache_data`, `app.py` entrypoint, `requirements.txt` += streamlit,
+  plotly, README sección Fase 5. Sin tests automatizados de UI; smoke
+  checklist 8/8 PASS vía `streamlit.testing.v1.AppTest`. Commit `657412d`.
+
+**Validación empírica:**
+- Suite final: 501 verdes (de 454 pre-spec-09; +47 nuevos en Tandas 0-2).
+- Smoke checklist 8/8: app levanta, sidebar carga 12 runs, tabla lista 8
+  candidatos del último run, filtros reducen en vivo (score_min=20 → 0),
+  click en fila abre detalle (`CNP — T1`), chart renderiza
+  (candle + 3 MAs + zona + 4 hlines), toggle de periodo refresca,
+  cambio de run refresca todo.
+- Validado contra DB real (`b8a4e227`, 1007 tickers universo combinado,
+  50 candidatos passed_paso_1).
+
+**Decisiones técnicas tomadas durante implementación** (ver §5):
+- Helper de país→divisa usa nombres completos en inglés (no códigos ISO de
+  2 letras), porque `candidates.country` guarda el `CompanyProfile.country`
+  de yfinance.
+- `use_container_width=True` (deprecado tras 2025-12-31) reemplazado por
+  `width="stretch"` en `st.dataframe` y `st.plotly_chart`.
+- Keys explícitas (`key="candidates_table"`, `key="period_radio"`) en
+  widgets para drivable testing via AppTest.
+- `load_best_zone` replica reconstrucción de SupportZone (sin tocar
+  persistence.py) porque `load_support_zones` existente no preserva is_best.
+
 ### Estadísticas
 
-- **Tests**: 454 verdes
-- **Commits**: 122
+- **Tests**: 501 verdes
+- **Commits**: 129
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -268,9 +317,9 @@ Implementación en una sola tanda:
 
 **Sin issues abiertos.**
 
-**Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía `workflow_dispatch` manual del 2026-05-28 (run del 13:30 UTC) — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Un segundo dispatch ese mismo día a las 16:58 UTC (run `26589402903`) también validó visualmente el fix del 404 en `history.html` (ver §1 spec 05) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod. Pendiente único operativo = observar el primer run disparado por `schedule` (no manual).
+**Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía `workflow_dispatch` manual del 2026-05-28 (run del 13:30 UTC) — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Un segundo dispatch ese mismo día a las 16:58 UTC (run `26589402903`) también validó visualmente el fix del 404 en `history.html` (ver §1 spec 05) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod.
 
-Próximo bloque de trabajo en código: Fase 5 — MVP solo-lectura con Streamlit (scope cerrado, ver §3.1 y §3.4). Spec Telegram descartada en esta sesión por bajo diferencial vs Pages + rutina diaria de abrir URL (ver §5).
+Próximo bloque: Fase 5 MVP terminada (spec 09). Próximo bloque a definir post-uso real de la app (1-2 semanas). Candidatos: segunda iteración de Fase 5 (overlays adicionales: AVWAPs, pivots, gaps, fibs; panel de ejecución con thresholds editables); backtesting agendado para ~2026-06-28; o cualquier otra prioridad que emerja del uso real.
 
 ---
 
@@ -278,7 +327,7 @@ Próximo bloque de trabajo en código: Fase 5 — MVP solo-lectura con Streamlit
 
 ### 3.1 Inmediato (próxima sesión)
 
-Arrancar diseño y construcción de **Fase 5 — MVP solo-lectura con Streamlit** (scope cerrado en sesión 2026-05-28, ver §3.4 y §5). Sub-tarea no bloqueante en paralelo: verificar que el primer `schedule` run automático del cron dispara correctamente (próxima ventana: viernes 2026-05-29 ~11:00 UTC). El dispatch manual del 2026-05-28 ya validó el ciclo bot→commit→Pages incluyendo el fix de hrefs, así que el schedule pendiente solo prueba que el cron auto-dispara — no bloquea Fase 5.
+Fase 5 MVP terminada en esta sesión (spec 09). Próximo paso: **usar la app real durante 1-2 semanas** y dejar que emerjan los pain points concretos antes de elegir siguiente bloque. Candidatos identificados (sin priorización fija): (a) segunda iteración de Fase 5 con overlays adicionales (AVWAPs anclados, pivots, gaps, fibs); (b) panel de ejecución con thresholds editables desde la UI (Fase 5.5); (c) backtesting agendado para ~2026-06-28 cuando haya 4 semanas de runs automáticos en `screening_history.db`. Sub-tarea pendiente: arreglar bug del retry loop en `daily-screening.yml` (no hace `git rebase --abort` entre intentos cuando hay conflict de rebase en outputs/DB; ver §4).
 
 ### 3.2 Fase 3 — Producción
 
@@ -296,27 +345,26 @@ Arrancar diseño y construcción de **Fase 5 — MVP solo-lectura con Streamlit*
 - Sustitución de HV Percentile por IV Percentile real.
 - Posible integración con IBKR API.
 
-### 3.4 Fase 5 — Web app local (próximo)
+### 3.4 Fase 5 — Web app local (MVP completado 2026-05-28)
 
-Interfaz web local para exploración interactiva de los runs persistidos. Scope del MVP cerrado en sesión 2026-05-28 (ver §5 para razones de cada decisión).
+Interfaz web local de solo-lectura sobre `screening_history.db`. **MVP cerrado en spec 09 (2026-05-28)**. Sub-bloques (B) panel de ejecución y (C) overlays adicionales del chart quedan diferidos a iteraciones futuras post-uso real.
 
-**Scope MVP (solo-lectura):**
-- Lectura de `screening_history.db` y OHLCV cacheados — sin re-ejecución del pipeline desde la UI.
-- Lista de candidatos del último run (o run histórico elegido) con filtros interactivos: por tier, sector, score mínimo, presencia de flags binarios.
-- Chart interactivo por candidato (TradingView Lightweight Charts o Plotly, decidir en diseño de spec) con overlays MVP: precio (6-12 meses daily) + zona de soporte sombreada (lower/upper bounds) + SMA200W + EMA200D + SMA50D.
-- Vista de historial: navegar runs pasados, comparar embudo entre runs.
+**Scope MVP cerrado:**
+- [x] Lectura de `screening_history.db` y OHLCV cacheados — sin re-ejecución del pipeline desde la UI.
+- [x] Lista de candidatos del último run (o run histórico elegido) con filtros interactivos: por tier, sector, score mínimo, presencia de flags binarios.
+- [x] Chart interactivo por candidato (Plotly) con overlays MVP: precio (3/6/12/24 meses daily) + zona de soporte sombreada (lower/upper bounds) + SMA200W + EMA200D + SMA50D + spot + 3 strikes.
+- [x] Vista de historial: navegar runs pasados desde el sidebar selector (12 runs en la última sesión).
 
-**Decisiones de scope (cerradas):**
+**Decisiones de scope cerradas en spec 09:**
 - Stack: Streamlit (Python puro, integración nativa con SQLite y parquet existentes).
-- Modo: solo-lectura. Sin panel de ejecución, sin edición de thresholds desde la UI, sin botón 'correr screening'. Diferido a Fase 5.5/6 una vez validada la utilidad de la vista de exploración.
-- Ejecución: N/A en MVP (no se ejecuta el pipeline). Cuando se sume ejecución (Fase 5.5+), modo bloqueante con loader, para uso personal local.
+- Modo: solo-lectura. Sin panel de ejecución, sin edición de thresholds desde la UI, sin botón 'correr screening'. Diferido a iteraciones futuras una vez validada la utilidad de la vista de exploración.
 - Pivots: recalcular al vuelo desde el OHLCV cacheado, no persistir. Cero migración de schema. Si backtesting (~2026-06-28) necesita pivots históricos, se reevalúa.
-- Overlays del chart en MVP: zona sombreada + SMA200W + EMA200D + SMA50D. AVWAPs anclados, pivots, gaps no cerrados, fibs → segunda iteración tras uso real de la app.
+- Overlays del chart en MVP: zona sombreada + SMA200W + EMA200D + SMA50D + spot + strikes. AVWAPs anclados, pivots, gaps no cerrados, fibs → segunda iteración tras uso real de la app.
 - Persistencia de configuración: N/A en MVP (no hay config editable).
 
-**Pre-requisitos**: ninguno bloqueante. Toda la data necesaria ya existe (DB con runs, OHLCV en cache parquet, zonas con metadata, elementos con tipo y precio). Pivots se recalculan al vuelo desde OHLCV.
-
-**Próximo paso**: diseño formal de spec (`specs/09_streamlit_mvp.md` o similar) con las 10 secciones del patrón.
+**Próximas iteraciones (post-uso real):**
+- (B) **Panel de ejecución con thresholds editables**: editar `config_filters.py` / `config_supports.py` desde la UI, persistir cambios YAML, disparar un run desde la app con loader bloqueante. Costo alto (manejo de runs en UI, validación de inputs, persistencia). Diseñar tras 1-2 semanas de uso real.
+- (C) **Overlays adicionales del chart**: AVWAPs anclados (pivot_low, earnings, 52w_high), pivots detectados, gaps no rellenados, fibs (618/786). Toggle por overlay desde sidebar. Prioridad real depende del uso — la lista actual es la hipótesis del SOP; el uso confirma o no.
 
 ### 3.5 Rework del scoring de soportes + segmentación de universos (prioridad alta)
 
@@ -402,6 +450,8 @@ Ideas anotadas en el camino pero no priorizadas:
 - **SVG por card más pesado de lo estimado en spec (post-spec-07 watch)**: el SVG real es ~2.5KB vs ~1.5KB que estimaba spec 07 §6.2 (labels Y/X + aria-label sumaron). Con 30 cards eso son ~75KB extra en el HTML (~150KB total estimado), no 50KB. Sigue siendo aceptable. Observar tamaño del HTML en crones reales con cards completas; si se vuelve problemático (>500KB) optimizar truncando precisión de coords o eliminando labels redundantes.
 - **Caso ACGL 2026-05-27 (post-spec-07 referencia)**: ACGL salió como T1 con zona compacta $93.35–$95.32 y score 6 en el run del 2026-05-26; al día siguiente cayó -4.16% intra-día rompiendo el conservative. La zona estaba correctamente identificada (confirmada por chart), score 6 era tier medio (no "invulnerable"), y los flags macro (FOMC 26d + CPI 19d) estaban presentes. El screener funcionó como diseñado — el stop estructural del SOP (cierre debajo del conservative → revisar tesis) es la respuesta correcta a este tipo de evento idiosincrático. Útil conservar como caso histórico para evaluar narrativa de spec 07 y, más adelante, para análisis sistemático sobre `screening_history.db` (cuántas zonas detectadas rompieron vs aguantaron, qué patrón discriminador adicional podría existir).
 - **GitHub Actions / Node 24 deprecation (deadline 2026-06-02)**: el run `26589402903` emitió annotation informativa: `actions/cache@v4`, `actions/checkout@v4`, `actions/deploy-pages@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4` corren sobre Node 20, GitHub fuerza Node 24 por default el 2026-06-02. Verificar antes de esa fecha que las versiones pinneadas soporten Node 24 (típicamente bumpeo de major: `cache@v5`, `checkout@v5`, etc.). Item chico de mantenimiento de infra.
+- **Bug: retry loop en daily-screening.yml no hace `git rebase --abort`**: cuando el step #8 `Commit outputs and DB` encuentra un conflict de rebase en archivos binarios (`screening_history.db`, `output/screening_latest.*`), el loop `for attempt in 1 2 3` falla los 3 intentos en cadena porque nunca limpia el estado de rebase entre intentos. Manifestado en dispatch run `26598720024` (2026-05-28) que corrió en cola tras el schedule del mismo día. Fix esperado: agregar `git rebase --abort 2>/dev/null || true` al inicio de cada iteración del retry loop. Validar con dispatch tras bumpear cron de un schedule existente.
+- **Bumpear actions transitivamente al próximo deadline de Node**: el 2026-06-02 forzó Node 24; las siguientes versiones (Node 26+) tendrán próximos deadlines. Anotar para revisar a partir de 2027 — los actions oficiales suelen migrar con 1-2 meses de anticipación.
 
 ---
 
@@ -472,6 +522,13 @@ Para no buscarlas en specs:
 - **2026-05-28 — Fase 5, pivots no se persisten, se recalculan al vuelo desde OHLCV cacheado**: el costo de cómputo es trivial frente al render de Streamlit, evita migración de schema y tabla extra de mantenimiento. Si backtesting (§3.6) requiere pivots históricos, se reabre la decisión ahí — no acá.
 - **2026-05-28 — Fase 5, overlays MVP del chart = zona + SMA200W + EMA200D + SMA50D**: 7 overlays simultáneos (set completo: + AVWAPs + pivots + gaps + fibs) es ruido visual antes que insight, sobre todo en pantallas chicas. Las MAs principales son lo más usado en el SOP. Los overlays adicionales se priorizan por uso real una vez que la app esté funcionando — adivinar prioridades hoy es malgastar diseño.
 - **2026-05-28 — Backtesting agendado para ~2026-06-28**: depende de tener ~4 semanas de runs automáticos acumulados en `screening_history.db`. El cron arranca a generar histórico real desde 2026-05-28. La spec puede diseñarse antes (no requiere data para escribirse), pero la ejecución y validación necesitan el histórico.
+- **2026-05-28 — Spec 09, helper de país→divisa usa nombres completos en inglés** (no ISO 2-letras): la spec listaba 'US', 'GB', etc., pero `candidates.country` guarda el `CompanyProfile.country` de yfinance ('United States', 'United Kingdom'). El mapping privado `_COUNTRY_TO_CURRENCY` en `data_loader.py` quedó con claves de nombre completo. Pequeña sorpresa atrapada en revisión empírica.
+- **2026-05-28 — Spec 09, `load_best_zone` replica reconstrucción sin tocar persistence.py**: `load_support_zones` existente devuelve TODAS las zonas sin preservar el flag `is_best` en el dataclass reconstruido. Para evitar modificar persistence.py (con sus garantías de idempotencia ya validadas en spec 03), `load_best_zone` hace su propio query `WHERE is_best=1` usando el índice `idx_support_zones_best` y reconstruye el SupportZone.
+- **2026-05-28 — Spec 09, `width="stretch"` en `st.dataframe` y `st.plotly_chart`**: el parámetro `use_container_width=True` está deprecado en Streamlit tras 2025-12-31; hoy genera DeprecationWarning. Reemplazado por el nuevo API `width="stretch"`. Cosmético pero necesario para evitar ruido de warnings en consola.
+- **2026-05-28 — Spec 09, keys explícitas en widgets**: agregadas `key="candidates_table"` (st.dataframe) y `key="period_radio"` (st.radio del toggle) para que `streamlit.testing.v1.AppTest` pueda drive el estado de selección desde session_state. AppTest tiene limitaciones internas (`Dataframe.select_rows` no existe; `Selectbox.set_value` falla con frozen dataclass options). Las keys son la salida estándar para testear via session_state directo. Patrón replicable en otros widgets si se necesita testear más superficie.
+- **2026-05-28 — Spec 09 cierre, Fase 5 MVP terminada en 4 tandas**: scope sellado al inicio (5 decisiones: Streamlit, solo-lectura, bloqueante diferido, pivots al vuelo, overlays MVP) ejecutó sin re-aperturas. 501 tests verdes (de 454 pre-spec), smoke 8/8, sin issues abiertos. Próxima iteración esperando 1-2 semanas de uso real para priorizar entre overlays adicionales, panel de ejecución, y backtesting.
+- **2026-05-28 — Schedule run automático validó 11 UTC cron + Node 24 bump**: run `26598622082` disparó por schedule a las 19:54 UTC en lugar de 11:00 UTC. GitHub Actions agenda con flexibilidad de horario (especialmente top-of-hour); el cron sigue siendo `0 11 * * 1-5` pero el job puede arrancar minutos u horas después según carga. No es bug. El run validó end-to-end las 5 actions bumpeadas (checkout@v5, setup-python@v6, cache@v5, upload-pages-artifact@v5, deploy-pages@v5).
+- **2026-05-28 — Dispatch fallido en step #8 'Commit outputs and DB' (no bug de Node 24)**: el dispatch `26598720024` esperó 22 min en cola por concurrency, corrió el pipeline OK, pero falló al pushear outputs por race condition con commits que se hicieron en main mientras esperaba. El bug real es del retry loop del workflow YAML (ver §4). Node 24 validado por el schedule del mismo día, no por este dispatch. Anotado como caso histórico — relanzar el dispatch ahora contra HEAD actual `657412d` debería pasar (los commits que generaron el conflict ya están integrados).
 
 ---
 

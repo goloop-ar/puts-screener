@@ -118,6 +118,28 @@ Todas las fuentes de data van detrás de una clase abstracta `DataProvider`. La 
 - Decisiones que tomaste y por qué (si aplica)
 - Cosas que quedaron pendientes o ambiguas
 
+## Al cerrar una sesión de trabajo
+
+Una "sesión" es un bloque de conversación que termina con un feature/spec/fix cerrado
+o con el usuario explicitando que va a cerrar. Antes de terminar:
+
+1. **ROADMAP.md actualizado**: §1 refleja lo completado en la sesión, §2 limpio de
+   issues ya resueltos, §3 con el próximo paso refinado, §4 con items movidos/cerrados,
+   §5 con decisiones nuevas registradas. "Última actualización" en fecha de hoy.
+2. **Contadores refrescados con datos reales** (no estimados): correr `pytest --tb=no -q`
+   para el conteo de tests y `git rev-list --count main` para commits. Usar esos números
+   exactos en §1 Estadísticas.
+3. **Specs y docs afectados al día**: cualquier spec que se cerró marcada como tal,
+   cualquier doc con referencia stale (cron schedule, paths, etc.) corregido.
+4. **Commit + push del sweep de cierre**: el sweep va en su propio commit con mensaje
+   `docs(roadmap): close <feature>, refresh stats, ...` (o similar). Push directo a main.
+5. **Working tree puede quedar dirty con artefactos de smoke** (output/, data/*.db).
+   Esos no entran al commit de cierre; el cron los regenera y sincroniza.
+
+Razón: el usuario sube ROADMAP/CLAUDE/SPEC/specs al knowledge al arrancar cada chat
+nuevo. Si la sesión cierra con docs stale, el siguiente chat empieza con info incorrecta
+y la primera tarea termina siendo un sweep correctivo — pérdida de tiempo evitable.
+
 ## Comandos útiles
 
 ```bash

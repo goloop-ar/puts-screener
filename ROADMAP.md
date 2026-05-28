@@ -2,7 +2,7 @@
 
 > Documento vivo: estado actual, issues abiertos, próximos pasos. Actualizar al cierre de cada sesión.
 
-**Última actualización**: 2026-05-27
+**Última actualización**: 2026-05-28
 
 ---
 
@@ -208,8 +208,8 @@ Implementación en 4 tandas:
 
 ### Estadísticas
 
-- **Tests**: 404 verdes
-- **Commits**: 101
+- **Tests**: 436 verdes
+- **Commits**: 112
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -220,7 +220,6 @@ Implementación en 4 tandas:
 **Sin issues abiertos.**
 
 **Pendiente humano para activar spec 07 en producción** (no bloquea código local):
-- Push de los 7 commits locales de spec 07 (6 de implementación + 1 de cierre docs).
 - Observar primer cron real con código spec 07 (próximo día hábil 22:00 UTC). Mirar con varias cards en lugar de una sola del smoke: legibilidad del split texto/chart, distribución de strikes contra zona en variedad de tickers, longitud típica de la narrativa.
 
 Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + charts interactivos) o Fase 4 (data de opciones, futuro lejano).
@@ -406,6 +405,7 @@ Para no buscarlas en specs:
 - **2026-05-27 — Spec 06, calibración Tanda 3 cerrada sin cambios a constantes**: el run de validación tuvo rate-limiting masivo de yfinance (~530 de 751 skips transitorios), muestra no representativa. Tier shape observado (T5=1, T4=4, T3=4, T2=4, T1=0) es razonable. La validación real son los crones de GitHub Actions con cache caliente. Recalibrar solo después de 2-3 crones limpios si la distribución se ve mal.
 - **2026-05-27 — Spec 06, GBp display como sufijo "p" sin conversión a libras**: yfinance retorna magnitudes de LSE en peniques; convertir requeriría dividir todos los valores numéricos (zonas, targets) y eso toca múltiples lugares. Más simple: mantener magnitud, agregar sufijo "p". Reversible bumpeando `GBp.divisor` a 100 en config_reports si en el futuro queremos libras.
 - **2026-05-27 — Spec 07 cerrada en código**: 4 tandas, 32 tests nuevos, 6 archivos nuevos en src + 4 modificados, decisiones registradas en spec 07 §11 + patch de Tandas 1-4 aplicado al cierre. Pendiente activación en producción vía cron.
+- **2026-05-28 — Cron movido de 22 UTC a 11 UTC**: prioriza tener el screening listo pre-apertura US (~8 ARG) vs latencia mínima al cierre US. La data es la misma (yfinance EOD consolidado); cambia solo cuándo se ve. Commit `de4d982`.
 
 ---
 

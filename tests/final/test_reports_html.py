@@ -228,3 +228,11 @@ def test_format_candidate_chart_placeholder_when_short_history(final_candidate_f
     d = _format_candidate(fc)
     assert d["chart_svg"] == ""
     assert d["chart_placeholder"] == "Histórico insuficiente para chart"
+
+
+def test_html_renders_watchlist_badge(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(ticker="WL", universes=("sp500", "watchlist"))
+    path = write_html_report([fc], _META, output_dir=tmp_path)
+    html = path.read_text(encoding="utf-8")
+    assert '<span class="universe-badge">watchlist</span>' in html
+    assert '<span class="universe-badge">sp500</span>' in html

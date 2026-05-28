@@ -136,3 +136,10 @@ def test_csv_flags_joined_with_pipe(tmp_path, final_candidate_factory):
         rows[0]["flags_legibles"]
         == "Earnings en 10 días (2026-05-31) | Ex-dividend en 8 días ($0.50)"
     )
+
+
+def test_csv_universes_column_includes_watchlist(tmp_path, final_candidate_factory):
+    fc = final_candidate_factory(universes=("sp500", "watchlist"))
+    path = write_csv_report([fc], output_dir=tmp_path)
+    _, rows = _read_csv(path)
+    assert rows[0]["universes"] == "sp500|watchlist"

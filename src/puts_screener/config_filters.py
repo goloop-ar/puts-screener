@@ -4,6 +4,8 @@ Cambiar un threshold acá NO requiere cambiar lógica. Importable desde
 cualquier módulo del paquete.
 """
 
+from pathlib import Path
+
 # === Filtros de calidad / liquidez (Paso 1) ===
 MIN_MARKET_CAP_USD: float = 10_000_000_000.0
 MIN_AVG_DAILY_VOLUME: float = 1_000_000.0
@@ -51,3 +53,8 @@ T4_LOOKBACK_DAYS: int = 60
 T4_DROP_THRESHOLD: float = -0.05
 T4_TOLERANCIA_TENDENCIA: float = 0.97
 T4_RSI_MAX: float = 55.0
+
+# === Watchlist personal (spec 08) ===
+WATCHLIST_FILE_PATH: Path = Path("data/watchlist.txt")
+WATCHLIST_UNIVERSE_TAG: str = "watchlist"
+WATCHLIST_COMMENT_PREFIX: str = "#"

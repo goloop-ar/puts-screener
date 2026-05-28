@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import pytest
@@ -148,3 +149,51 @@ def test_cache_disabled_env(tmp_universe_cache, monkeypatch):
     universe_builder._write_universe_cache("sp500", ["AAPL"], universe_builder._SP500_URL)
     monkeypatch.setenv("CACHE_DISABLED", "1")
     assert universe_builder._read_universe_cache("sp500") is None
+
+
+# --- spec 08: watchlist como cuarto universo ---
+
+
+def _write_watchlist(tmp_path, content: str) -> Path:
+    p = tmp_path / "watchlist.txt"
+    p.write_text(content, encoding="utf-8")
+    return p
+
+
+def test_build_universe_watchlist_only(tmp_path):
+    wl = _write_watchlist(tmp_path, "CRWV\nARM\nBARC.L\n")
+    result = universe_builder.build_universe(["watchlist"], watchlist_path=wl)
+    assert result == {"ARM": {"watchlist"}, "BARC.L": {"watchlist"}, "CRWV": {"watchlist"}}
+
+
+def test_build_universe_watchlist_combined_with_sp500(tmp_universe_cache, monkeypatch, tmp_path):
+    monkeypatch.setattr(universe_builder, "_fetch_sp500", lambda: ["AAPL", "CRWV"])
+    wl = _write_watchlist(tmp_path, "CRWV\nARM\nBARC.L\n")
+    result = universe_builder.build_universe(["sp500", "watchlist"], watchlist_path=wl)
+    assert result == {
+        "AAPL": {"sp500"},
+        "ARM": {"watchlist"},
+        "BARC.L": {"watchlist"},
+        "CRWV": {"sp500", "watchlist"},
+    }
+
+
+def test_build_universe_unknown_universe_raises(tmp_universe_cache):
+    with pytest.raises(ValueError, match="foo"):
+        universe_builder.build_universe(["foo"])
+
+
+def test_build_universe_watchlist_missing_file_returns_empty_set(tmp_path, caplog):
+    missing = tmp_path / "no_existe.txt"
+    with caplog.at_level(logging.WARNING):
+        result = universe_builder.build_universe(["watchlist"], watchlist_path=missing)
+    assert result == {}
+    assert any("no encontrado" in r.getMessage() for r in caplog.records)
+
+
+def test_build_universe_watchlist_dedup_across_universes(tmp_universe_cache, monkeypatch, tmp_path):
+    monkeypatch.setattr(universe_builder, "_fetch_sp500", lambda: ["T1"])
+    monkeypatch.setattr(universe_builder, "_fetch_nasdaq100", lambda: ["T1"])
+    wl = _write_watchlist(tmp_path, "T1\n")
+    result = universe_builder.build_universe(["sp500", "nasdaq100", "watchlist"], watchlist_path=wl)
+    assert result == {"T1": {"sp500", "nasdaq100", "watchlist"}}

@@ -1,0 +1,21 @@
+# Watchlist personal — un ticker por línea
+# Líneas que empiezan con # se ignoran
+# Líneas vacías también se ignoran
+#
+# Para activarla, copiar este archivo a data/watchlist.txt y editarlo:
+#   cp data/watchlist.txt.example data/watchlist.txt
+#
+# Después, correr el screener incluyendo "watchlist" en --universe:
+#   python -m puts_screener.run --universe sp500,watchlist
+#   python -m puts_screener.run --universe watchlist   # solo watchlist
+#
+# Formato de tickers:
+#   - Símbolo nativo del exchange (mismo que ingresa yfinance).
+#   - Case-insensitive (se normaliza a uppercase internamente).
+#
+# Ejemplos comentados:
+# CRWV
+# ARM
+# BARC.L
+# ABI.BR
+# ASML.AS

@@ -44,6 +44,9 @@ htmlcov/
 # Provider cache (regenerable, transitorio)
 data/cache/
 
+# Watchlist personal (spec 08)
+data/watchlist.txt
+
 # Logs (regenerable por corrida)
 logs/
 

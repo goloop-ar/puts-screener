@@ -15,6 +15,11 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
+from puts_screener.config_filters import (
+    WATCHLIST_COMMENT_PREFIX,
+    WATCHLIST_FILE_PATH,
+    WATCHLIST_UNIVERSE_TAG,
+)
 from puts_screener.providers import config
 from puts_screener.providers.tickers import SUPPORTED_EU_SUFFIXES
 
@@ -25,8 +30,9 @@ _NASDAQ100_URL = "https://en.wikipedia.org/wiki/Nasdaq-100"
 _STOXX600_URL = "https://en.wikipedia.org/wiki/STOXX_Europe_600"
 _SOURCE_URLS = {"sp500": _SP500_URL, "nasdaq100": _NASDAQ100_URL, "stoxx600": _STOXX600_URL}
 
-# Universos soportados por `build_universe` (orden = orden de aplicación de los fetchers).
-SUPPORTED_UNIVERSES: tuple[str, ...] = ("sp500", "nasdaq100", "stoxx600")
+# Universos soportados por `build_universe`. Los tres primeros vienen de fetchers de Wikipedia
+# (en ese orden); "watchlist" (spec 08) es file-based (data/watchlist.txt, sin fetcher ni cache).
+SUPPORTED_UNIVERSES: tuple[str, ...] = ("sp500", "nasdaq100", "stoxx600", WATCHLIST_UNIVERSE_TAG)
 
 _CACHE_DIR = Path("data/cache/universe")
 _CACHE_TTL_SECONDS = 7 * 24 * 3600
@@ -77,12 +83,17 @@ _STOXX_COUNTRY_TO_SUFFIX: dict[str, str] = {
 }
 
 
-def build_universe(universes: list[str], refresh: bool = False) -> dict[str, set[str]]:
+def build_universe(
+    universes: list[str],
+    refresh: bool = False,
+    watchlist_path: Path = WATCHLIST_FILE_PATH,
+) -> dict[str, set[str]]:
     """Construye el universo combinando los universos pedidos, con dedup y tag de pertenencia.
 
     Args:
         universes: lista de universos a combinar. Cada uno debe estar en SUPPORTED_UNIVERSES.
-        refresh: si True, ignora cache y refetchea.
+        refresh: si True, ignora cache y refetchea (no aplica a "watchlist", que se lee fresh).
+        watchlist_path: path del archivo de watchlist (solo se usa si "watchlist" está en la lista).
 
     Returns:
         Mapping ticker (formato yfinance) → set de universos a los que pertenece. Ordenado
@@ -106,10 +117,57 @@ def build_universe(universes: list[str], refresh: bool = False) -> dict[str, set
 
     mapping: dict[str, set[str]] = {}
     for name in universes:
-        tickers = _fetch_with_cache(name, _fetcher_for(name), refresh)
+        if name == WATCHLIST_UNIVERSE_TAG:
+            tickers: list[str] | set[str] = load_watchlist(watchlist_path)
+        else:
+            tickers = _fetch_with_cache(name, _fetcher_for(name), refresh)
         for ticker in tickers:
             mapping.setdefault(ticker, set()).add(name)
     return {ticker: mapping[ticker] for ticker in sorted(mapping)}
+
+
+def load_watchlist(file_path: Path = WATCHLIST_FILE_PATH) -> set[str]:
+    """Lee data/watchlist.txt y devuelve set de tickers normalizados a uppercase.
+
+    Returns:
+        Set de tickers. Vacío si el archivo no existe (con warning logueado).
+    """
+    if not file_path.exists():
+        logger.warning("%s no encontrado, watchlist vacía", file_path)
+        return set()
+
+    tickers: set[str] = set()
+    invalid_lines = 0
+    with file_path.open(encoding="utf-8") as f:
+        for line_num, raw in enumerate(f, start=1):
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith(WATCHLIST_COMMENT_PREFIX):
+                continue
+            candidate = line.upper()
+            if not _is_valid_ticker(candidate):
+                logger.warning("%s:%d ticker inválido '%s', omitido", file_path, line_num, line)
+                invalid_lines += 1
+                continue
+            tickers.add(candidate)
+
+    logger.info(
+        "Watchlist cargada: %d tickers de %s (%d líneas inválidas omitidas)",
+        len(tickers),
+        file_path,
+        invalid_lines,
+    )
+    return tickers
+
+
+def _is_valid_ticker(s: str) -> bool:
+    """True si `s` es un ticker válido: alfanumérico + '.', '-', '/', sin espacios internos."""
+    if not s:
+        return False
+    if " " in s or "\t" in s:
+        return False
+    return all(c.isalnum() or c in ".-/" for c in s)
 
 
 def _fetcher_for(name: str) -> Callable[[], list[str]]:

@@ -69,13 +69,17 @@ jobs:
           else
             git commit -m "chore(daily): screening run $(date -u +'%Y-%m-%d %H:%M UTC')"
             for attempt in 1 2 3; do
+              # Limpiar estado de rebase residual de iter previa (no-op si no hay)
+              git rebase --abort 2>/dev/null || true
               if git pull --rebase origin main && git push origin main; then
                 exit 0
               fi
               echo "Push attempt $attempt failed, retrying in 5s..."
               sleep 5
             done
-            echo "All push attempts failed."
+            echo "All push attempts failed. Final state:"
+            git status --short || true
+            git log --oneline -5 || true
             exit 1
           fi
 

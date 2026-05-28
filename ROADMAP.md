@@ -169,7 +169,14 @@ Automatización completa del run diario en GitHub Actions con publicación a Git
 - [x] **Tanda 3**: tracking inicial de `output/screening_*.{html,csv}` (28 archivos, 13 pares timestamped + latest) y `data/screening_history.db` (3.4 MB, tratado como binario por `.gitattributes` preexistente). Commit `197bddc`.
 - [x] **Baseline de embudo en universo completo** (998 tickers únicos sp500+nasdaq100+stoxx600, wall-time 12m16s local con cache caliente): 670 procesados / 328 sin data crítica → 131 Paso 1 (13.1%) → 39 Paso 2 (3.9%) → 131 con flags binarios. Más bajo que el 6.5% Paso 2 sobre sp500-only (run de 200) — esperable por STOXX 600 con data EU faltante.
 
-**Pendiente humano** (no automatizable): setup one-time en GitHub Settings (Pages source = GitHub Actions, workflow permissions = read/write, environment `github-pages`) + primer `workflow_dispatch` manual + push de los 4 commits locales (`b49a950`, `d4fb3e5`, `aafb686`, `197bddc`).
+**✅ Validado en producción (2026-05-28):**
+- Setup en GitHub Settings completado (Pages source = GitHub Actions, workflow permissions = read/write, environment `github-pages`).
+- Push de los commits locales hecho (incluidos `b49a950`, `d4fb3e5`, `aafb686`, `197bddc` + posteriores de specs 06/07/08).
+- Workflow validado vía `workflow_dispatch`: commit `22ccf41` (2026-05-28T13:30:23Z, autoría `github-actions[bot]`) tocó `output/screening_latest.*` + timestamped del día (`output/screening_2026-05-28_1330.*`) + crecimiento de `data/screening_history.db`.
+- Pages publicada y navegable: index = último run, `history.html` lista corridas con links funcionales. Output visual de specs 07 + 08 revisado en el sitio y OK.
+- Suite en 453 tests verdes. Cron verificado en main: `"0 11 * * 1-5"` (11:00 UTC ≈ 8 ARG), commit y push confirmados.
+
+⏸️ **Pendiente único:** observar el primer run disparado por `schedule` (no manual), esperado el primer día hábil siguiente a las 11:00 UTC. El no-show del schedule del 2026-05-28 se atribuye a comportamiento conocido de GitHub Actions (primera ventana tras cambiar el cron + congestión top-of-hour), no a error de config.
 
 ### Spec 06 — Clustering compacto + tier + macro banner + currency (Fase 1.5) ✅ Cerrada (2026-05-27)
 
@@ -250,7 +257,7 @@ Implementación en una sola tanda:
 ### Estadísticas
 
 - **Tests**: 453 verdes
-- **Commits**: 116
+- **Commits**: 119
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -260,8 +267,7 @@ Implementación en una sola tanda:
 
 **Sin issues abiertos.**
 
-**Pendiente humano para activar specs 07 + 08 en producción** (no bloquea código local):
-- Observar primer cron real con código spec 07 + spec 08 (próximo día hábil 11:00 UTC, ~8 ARG). Validar: legibilidad del split texto/chart con varias cards, distribución de strikes contra zona en variedad de tickers, longitud típica de la narrativa, presencia del badge `watchlist` en tickers de la watchlist personal que pasen filtros.
+**Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía el `workflow_dispatch` manual del 2026-05-28 — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Pendiente único = observar el primer run disparado por `schedule` (mismo bullet de spec 05 en §1; no se duplica acá).
 
 Próximo bloque de trabajo en código: Spec Telegram (notificación al teléfono), Spec 06bis (recalibración si la distribución de scores/tiers en crones reales lo justifica), o Fase 5 (web app local con Streamlit).
 
@@ -271,7 +277,7 @@ Próximo bloque de trabajo en código: Spec Telegram (notificación al teléfono
 
 ### 3.1 Inmediato (próxima sesión)
 
-Validar specs 07 + 08 en producción (ver §2 "Pendiente humano"). Mirar el sitio público después del primer cron con código nuevo: densidad con varias cards, variedad de divisas, longitud de narrativa, presencia de badge `watchlist`. Si todo OK, decidir próximo bloque de implementación: Spec Telegram, Spec 06bis (solo si los crones muestran distribución de scores rara), o Fase 5 (web app local con Streamlit).
+Observar el primer run disparado por `schedule` el próximo día hábil a las 11:00 UTC (validación de prod ya hecha por el camino manual el 2026-05-28; ver §1 spec 05 y §2). Una vez confirmado el ciclo automático, decidir próximo bloque de implementación entre los 3 candidatos ya listados: Spec Telegram, Spec 06bis (solo si los crones muestran distribución de scores rara), o Fase 5 (web app local con Streamlit).
 
 ### 3.2 Fase 3 — Producción
 
@@ -280,7 +286,7 @@ Validar specs 07 + 08 en producción (ver §2 "Pendiente humano"). Mirar el siti
 - GitHub Actions con cron diario post-cierre US. → ✅ (cron `0 22 * * 1-5` lun-vie).
 - Publicación de HTML a GitHub Pages. → ✅ (`actions/deploy-pages` artifact-based).
 - Auto-commit de outputs al repo. → ✅ (`output/screening_*` + `data/screening_history.db`).
-- Notificación Telegram opcional. → ⏸️ Deferido a spec 06 (post-validación de Pages).
+- Notificación Telegram opcional. → ⏸️ Candidato a spec propia ("Spec Telegram"), sin dependencia de specs ya cerradas. La nota original lo difería a spec 06, pero spec 06 terminó cubriendo clustering/tier/macro/currency y cerró sin abordarlo (ver decisión 2026-05-28 en §5).
 
 ### 3.3 Fase 4 — Opciones (futuro lejano)
 
@@ -433,7 +439,7 @@ Para no buscarlas en specs:
 - **2026-05-27 — Spec 05, cache OHLCV con `actions/cache@v4`**: key por `run_id` garantiza save, `restore-keys` con prefix restaura el más reciente. Invalidación manual via bump de version (`v1`→`v2`) en el key.
 - **2026-05-27 — Spec 05, DB commiteada al repo + binario en `.gitattributes`**: habilita backtesting futuro contra el propio histórico. Trade-off de crecimiento monotónico aceptado (~50-100 KB/run, manejable por años). `.gitattributes` preexistía con `*.db binary` y `*.parquet binary` — la spec lo listaba como [NEW] pero estaba [EXISTING] con contenido exacto, no requirió cambios.
 - **2026-05-27 — Spec 05, histórico navegable autogenerado en `history.html`**: el índice se construye en cada deploy desde `output/`. Sin esto, el histórico solo sería accesible vía `git log` perdiendo el valor de Pages.
-- **2026-05-27 — Spec 05, cron en 22:00 UTC lun-vie**: cubre cierre US en DST (18:00 ET) y winter (17:00 ET). Sin manejo explícito de feriados US (output similar al día previo, no hay daño).
+- **2026-05-27 — Spec 05, cron en 22:00 UTC lun-vie**: cubre cierre US en DST (18:00 ET) y winter (17:00 ET). Sin manejo explícito de feriados US (output similar al día previo, no hay daño). (Supersedido por decisión 2026-05-28 — cron movido a 11:00 UTC, ver más abajo.)
 - **2026-05-27 — Spec 05, Telegram diferido a spec 06**: superficie de la spec inicial ya significativa (workflow + Pages + caching + commit + permisos). Telegram entra una vez que Pages esté validado en producción.
 - **2026-05-27 — Spec 05, Finnhub no en Actions inicialmente**: skip rate 38.5% post-hardening con yfinance solo es aceptable. Sumar Finnhub es PR chico si se vuelve problema (API key en Secrets).
 - **2026-05-27 — Spec 05, sin CI de tests en `daily-screening.yml`**: workflow productivo, no CI. CI de tests va en workflow separado si se quiere; mezclar tests + run alarga wall-time del cron sin razón.
@@ -454,6 +460,8 @@ Para no buscarlas en specs:
 - **2026-05-28 — Spec 08, `.gitignore` con excepción al pattern global `*.txt`**: para que `data/watchlist.txt` quede trackeable hubo que agregar `!data/watchlist.txt` después de `!requirements.txt` (el pattern `*.txt` global lo capturaba). El `data/watchlist.txt.example` sigue trackeable por extensión distinta.
 - **2026-05-28 — Spec 08, RMS.PA por sobre RMS**: usuario verificó en Yahoo Finance que el ticker correcto para Hermès es `RMS.PA` (Euronext Paris), no `RMS` (que apuntaría a otra empresa US). Anotado para futuras watchlists: tickers europeos requieren sufijo de exchange.
 - **2026-05-28 — Convención operativa**: cerrar cualquier sesión de trabajo con docs actualizados y pusheados. ROADMAP siempre debe reflejar el estado real del repo al cierre. Si una sesión termina con docs stale, la próxima sesión arranca con un sweep correctivo antes de poder trabajar — pérdida de tiempo evitable.
+- **2026-05-28 — Pipeline automático validado en producción (camino manual)**: un `workflow_dispatch` confirmó el ciclo completo — run verde, commit de outputs a main con identidad `github-actions[bot]` (commit `22ccf41`, `screening_latest.*` + timestamped del día + crecimiento de `screening_history.db`), y Pages publicada y navegable (index = último run, `history.html` con links funcionales, output de specs 07+08 revisado OK). Suite en 453 verdes. Config de cron verificada en main: `"0 11 * * 1-5"`. Pendiente único: observar el primer run disparado por `schedule` (no manual), esperado el primer día hábil siguiente a las 11:00 UTC. El no-show del schedule del 2026-05-28 se atribuye a comportamiento conocido de GitHub Actions (primera ventana tras cambiar el cron + congestión top-of-hour), no a error de config.
+- **2026-05-28 — Telegram desacoplado de spec 06**: la decisión del 2026-05-22 lo difería a spec 06, pero spec 06 terminó siendo clustering/tier/macro/currency y cerró sin abordarlo. Telegram pasa a ser candidato a spec propia, sin dependencia de specs ya cerradas. Se actualiza §3.2.
 
 ---
 

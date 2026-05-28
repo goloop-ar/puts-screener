@@ -157,3 +157,24 @@ def test_build_pages_bundle_clean_rebuild(tmp_path):
     assert not (bundle_dir / "basura.txt").exists()
     assert not (bundle_dir / "history" / "stale.html").exists()
     assert (bundle_dir / "index.html").exists()
+
+
+def test_history_index_uses_relative_hrefs(tmp_path):
+    """Regresión: los hrefs del history deben ser relativos al documento (sin barra inicial).
+
+    Servido como project page bajo `/puts-screener/`, un href root-absoluto resuelve contra
+    `goloop-ar.github.io/...` perdiendo el prefijo del repo y devolviendo 404. Con paths
+    relativos funciona tanto en root como en subpath sin necesidad de configurar base URL.
+    """
+    _timestamped(tmp_path, "2026-05-22", "2200")
+    entries = discover_history(tmp_path)
+    html = render_history_index(entries, DEFAULT_TEMPLATE_PATH)
+
+    # Hrefs relativos esperados (sin barra inicial):
+    assert 'href="history/screening_2026-05-22_2200.html"' in html
+    assert 'href="history/screening_2026-05-22_2200.csv"' in html
+    assert 'href="index.html"' in html
+
+    # Ningún href de navegación debe ser root-absoluto:
+    assert 'href="/history/' not in html
+    assert 'href="/index.html"' not in html

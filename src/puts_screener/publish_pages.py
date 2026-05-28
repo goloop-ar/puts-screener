@@ -83,19 +83,18 @@ def discover_history(output_dir: Path) -> list[HistoryEntry]:
 def render_history_index(
     entries: list[HistoryEntry],
     template_path: Path,
-    site_base_url: str = "",
 ) -> str:
     """Renderiza el HTML del índice del histórico.
 
-    `site_base_url` se prepende a cada link relativo (útil para Pages servido desde un subpath).
-    En default "" funciona para el root del sitio.
+    Los hrefs son relativos al documento (sin barra inicial) → funcionan tanto en root
+    como en project page (subpath /<repo>/) sin necesidad de base URL configurable.
     """
     env = Environment(
         loader=FileSystemLoader(str(template_path.parent)),
         autoescape=select_autoescape(["html", "j2"]),
     )
     template = env.get_template(template_path.name)
-    return template.render(entries=entries, site_base_url=site_base_url)
+    return template.render(entries=entries)
 
 
 def build_pages_bundle(
@@ -103,7 +102,6 @@ def build_pages_bundle(
     bundle_dir: Path,
     *,
     template_path: Path | None = None,
-    site_base_url: str = "",
 ) -> PagesBundle:
     """Construye el bundle completo en bundle_dir (ver §6.2)."""
     template_path = template_path or DEFAULT_TEMPLATE_PATH
@@ -136,7 +134,7 @@ def build_pages_bundle(
 
     history_html = bundle_dir / PAGES_HISTORY_FILENAME
     history_html.write_text(
-        render_history_index(entries, template_path, site_base_url=site_base_url),
+        render_history_index(entries, template_path),
         encoding="utf-8",
     )
 

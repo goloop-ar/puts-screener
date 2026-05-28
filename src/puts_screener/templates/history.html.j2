@@ -26,7 +26,7 @@
 <body>
   <header>
     <h1>Histórico de corridas</h1>
-    <p><a href="{{ site_base_url }}/index.html">← Volver al último run</a></p>
+    <p><a href="index.html">← Volver al último run</a></p>
   </header>
   <main>
     {% if entries %}
@@ -37,8 +37,8 @@
         <tr>
           <td>{{ e.run_date.isoformat() }}</td>
           <td>{{ e.run_time[:2] }}:{{ e.run_time[2:] }}</td>
-          <td><a href="{{ site_base_url }}/history/{{ e.html_filename }}">HTML</a></td>
-          <td>{% if e.csv_filename %}<a href="{{ site_base_url }}/history/{{ e.csv_filename }}">CSV</a>{% else %}—{% endif %}</td>
+          <td><a href="history/{{ e.html_filename }}">HTML</a></td>
+          <td>{% if e.csv_filename %}<a href="history/{{ e.csv_filename }}">CSV</a>{% else %}—{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>

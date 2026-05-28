@@ -206,10 +206,51 @@ Implementación en 4 tandas:
 
 **Tests:** 404 (post-spec-06) → 436 (post-spec-07). +32 tests nuevos.
 
+### Spec 08 — Watchlist personal ✅ Cerrada (2026-05-28)
+
+Cuarto universo `watchlist` alimentado por archivo local `data/watchlist.txt`. Los tickers de
+la watchlist se mergean al universo evaluado cuando se pasa `--universe ...,watchlist` y pasan
+por los mismos gates del SOP que el resto (NO bypasean filtros). Cuando un ticker de watchlist
+cumple todos los gates, aparece en el reporte con badge `watchlist` adicional al lado del
+ticker.
+
+Implementación en una sola tanda:
+
+- [x] `load_watchlist()` en `universe_builder.py`: parsing tolerante (comentarios `#`, líneas
+  vacías, case-insensitive, validación de formato de ticker, archivo faltante = warning + set
+  vacío, no fatal).
+- [x] `"watchlist"` agregado a `SUPPORTED_UNIVERSES` (propaga aceptación a `run.py` sin tocarlo).
+- [x] `build_universe` extendido con parámetro `watchlist_path` y rama especial para `watchlist`.
+- [x] 3 constantes nuevas en `config_filters.py` (`WATCHLIST_FILE_PATH`,
+  `WATCHLIST_UNIVERSE_TAG`, `WATCHLIST_COMMENT_PREFIX`).
+- [x] `.gitignore` actualizado con excepción `!data/watchlist.txt` para el pattern `*.txt`
+  global.
+- [x] `data/watchlist.txt.example` commiteado como plantilla.
+- [x] 17 tests nuevos: 10 en `tests/test_watchlist.py` + 5 en `tests/screening/test_universe_builder.py`
+  + 1 en `tests/final/test_reports_csv.py` + 1 en `tests/final/test_reports_html.py`.
+
+**Cierre post-implementación (decisión B.1 — watchlist procesada por el cron):**
+- [x] `data/watchlist.txt` desgitignorado, commiteado con la lista personal del usuario (18 tickers,
+  mezcla US + EU: MSFT, NVO, ORCL, UNH, RACE, ACHR, SOFI, NBIS, CRWV, IREN, AMD, HIMS, GOOG,
+  AMZN, OSCR, AVGO, DELL, RMS.PA).
+- [x] `.github/workflows/daily-screening.yml` actualizado: cron corre con
+  `--universe sp500,nasdaq100,stoxx600,watchlist`.
+
+**Validación empírica (smoke `--universe watchlist`):**
+- 18 tickers cargados correctamente desde `data/watchlist.txt`.
+- Wall-time: 10.6s para los 18 tickers.
+- 3 pasaron Paso 1, 0 pasaron Paso 2 al momento del smoke (esperado — no todos califican
+  todos los días).
+- Smoke combinado `sp500,watchlist --limit 50`: BARC.L (watchlist) pasó con badge `watchlist`
+  en HTML; ACGL (sp500) también pasó con su badge sp500.
+- Smoke con archivo faltante: warning logueado, EXIT=0, sin crash.
+
+**Tests:** 436 (post-spec-07) → 453 (post-spec-08). +17 tests nuevos.
+
 ### Estadísticas
 
-- **Tests**: 436 verdes
-- **Commits**: 112
+- **Tests**: 453 verdes
+- **Commits**: 116
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -219,10 +260,10 @@ Implementación en 4 tandas:
 
 **Sin issues abiertos.**
 
-**Pendiente humano para activar spec 07 en producción** (no bloquea código local):
-- Observar primer cron real con código spec 07 (próximo día hábil 22:00 UTC). Mirar con varias cards en lugar de una sola del smoke: legibilidad del split texto/chart, distribución de strikes contra zona en variedad de tickers, longitud típica de la narrativa.
+**Pendiente humano para activar specs 07 + 08 en producción** (no bloquea código local):
+- Observar primer cron real con código spec 07 + spec 08 (próximo día hábil 11:00 UTC, ~8 ARG). Validar: legibilidad del split texto/chart con varias cards, distribución de strikes contra zona en variedad de tickers, longitud típica de la narrativa, presencia del badge `watchlist` en tickers de la watchlist personal que pasen filtros.
 
-Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + charts interactivos) o Fase 4 (data de opciones, futuro lejano).
+Próximo bloque de trabajo en código: Spec Telegram (notificación al teléfono), Spec 06bis (recalibración si la distribución de scores/tiers en crones reales lo justifica), o Fase 5 (web app local con Streamlit).
 
 ---
 
@@ -230,7 +271,7 @@ Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + cha
 
 ### 3.1 Inmediato (próxima sesión)
 
-Validar spec 07 en producción (ver §2 "Pendiente humano"). Una vez verificado al menos 1 cron con código spec 07 en condiciones normales, decidir próximo bloque: Spec 08 (watchlist personal), Spec 06bis (recalibración si la distribución de scores/tiers lo justifica), Spec Telegram, o Fase 5 (web app local con Streamlit).
+Validar specs 07 + 08 en producción (ver §2 "Pendiente humano"). Mirar el sitio público después del primer cron con código nuevo: densidad con varias cards, variedad de divisas, longitud de narrativa, presencia de badge `watchlist`. Si todo OK, decidir próximo bloque de implementación: Spec Telegram, Spec 06bis (solo si los crones muestran distribución de scores rara), o Fase 5 (web app local con Streamlit).
 
 ### 3.2 Fase 3 — Producción
 
@@ -347,7 +388,6 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Endurecer firma `run_screening`/`run_final_pipeline` a dict-only**: hoy aceptan `list[str] | dict[str,set]` por compat con smoke tests. Path productivo siempre pasa dict.
 - **Sesgo a T1=100% en régimen alcista actual**: validación con --limit 200 sobre S&P 500 dio 13/13 T1. Esperable, pero anotar para confirmar en régimen distinto (T2 debería aparecer en pánicos, T4 en correcciones post-earnings, T3 en lateralizaciones macro).
 - **Calibración futura de `SCORE_MIN_VALID` y `MIN_HEAVY_ELEMENTS`**: thresholds provisionales 5.0 y 2 fijados con muestra de 200. Con varias corridas históricas semanales sobre el universo completo, definir si el output es estable o requiere ajuste.
-- **Watchlist personal extendiendo el universo (spec 08 candidata)**: archivo `data/watchlist.txt` con un ticker por línea, mergeable al universo configurado. Permite trackear nombres fuera de sp500/nasdaq100/stoxx600 (ej. CRWV, otros IPOs recientes, mid-caps con buen setup). Trade-off conocido: stocks con histórico corto (<4 años) no pueden calcular SMA200W, lo que limita su techo de score (heavies pesan SMA200D/W con peso 3.0). Útil igual: el ticker entra al universo y se evalúa con lo que tiene; el humano decide.
 - **Saturación del density multiplier en cap 1.5 (post-spec-06 watch)**: en el run de Tanda 3 calibración, 6 de 13 best zones pegaron el cap superior del multiplier (×1.5). El multiplier diferencia poco entre las zonas más densas (todas saturan). Si la observación se confirma en crones reales sin rate-limiting, considerar subir `REFERENCE_DENSITY` (de 100 a ~150) y/o `MAX_DENSITY_MULTIPLIER` (de 1.5 a ~1.75) para ampliar el rango lineal.
 - **T1 (banda 5.0-6.5) estructuralmente vacío (post-spec-06 watch)**: una zona con score base 5.0 multiplicado por ≥1.0 ya cae en T2 (≥7.5). T1 solo se alcanza con multiplier <1.0, que requiere densidad <100 — rara post-clustering compacto. No es bug; es consecuencia del diseño multiplier. Aceptable: tier 1 sigue siendo "raro" como debe ser.
 - **Gate de ancho silencioso (post-spec-06 observabilidad)**: `ZONE_MAX_WIDTH_PCT` descarta clusters con un `continue` en `cluster_into_zones` antes de persistir, sin loguear. No medible a posteriori cuántos clusters descartó. Si en algún momento se sospecha que descarta demasiado o demasiado poco, instrumentar un log o contador en el módulo. Bajo dolor actual.
@@ -406,6 +446,14 @@ Para no buscarlas en specs:
 - **2026-05-27 — Spec 06, GBp display como sufijo "p" sin conversión a libras**: yfinance retorna magnitudes de LSE en peniques; convertir requeriría dividir todos los valores numéricos (zonas, targets) y eso toca múltiples lugares. Más simple: mantener magnitud, agregar sufijo "p". Reversible bumpeando `GBp.divisor` a 100 en config_reports si en el futuro queremos libras.
 - **2026-05-27 — Spec 07 cerrada en código**: 4 tandas, 32 tests nuevos, 6 archivos nuevos en src + 4 modificados, decisiones registradas en spec 07 §11 + patch de Tandas 1-4 aplicado al cierre. Pendiente activación en producción vía cron.
 - **2026-05-28 — Cron movido de 22 UTC a 11 UTC**: prioriza tener el screening listo pre-apertura US (~8 ARG) vs latencia mínima al cierre US. La data es la misma (yfinance EOD consolidado); cambia solo cuándo se ve. Commit `de4d982`.
+- **2026-05-28 — Spec 08, watchlist no bypasea gates del SOP**: la watchlist solo extiende qué tickers se evalúan, no relaja filtros del Paso 1/2/3. Mantiene la propiedad "todo lo que aparece en el reporte es accionable". Descartado el comportamiento "watchlist siempre aparece" por mezclar responsabilidades.
+- **2026-05-28 — Spec 08, badge `watchlist` mismo estilo que sp500/nasdaq100/stoxx600**: gris neutro, sin destaque visual especial. El usuario sabe que es suyo el ticker.
+- **2026-05-28 — Spec 08, parsing tolerante del archivo**: comentarios `#`, líneas vacías, case-insensitive, validación de formato; archivo faltante = warning + set vacío (no fatal); líneas inválidas se skipean con warning sin abortar.
+- **2026-05-28 — Spec 08, `"watchlist"` agregado a `SUPPORTED_UNIVERSES`**: hallazgo del prompt original que asumía toda la lógica en `build_universe`; en realidad `run.py` valida el flag `--universe` contra esa constante. Sumar el tag propaga la aceptación end-to-end sin tocar `run.py`.
+- **2026-05-28 — Spec 08, decisión B.1 (watchlist commiteada al repo público)**: el archivo pasó de gitignored a trackeado. Razón: el valor real está en que el cron diario la procese sin intervención manual; mantenerla local obligaba a correr manualmente cada día. La info no es sensible (lista de tickers a vigilar). Reversible bajándola del repo con 1 commit si en algún momento se quiere ocultar.
+- **2026-05-28 — Spec 08, `.gitignore` con excepción al pattern global `*.txt`**: para que `data/watchlist.txt` quede trackeable hubo que agregar `!data/watchlist.txt` después de `!requirements.txt` (el pattern `*.txt` global lo capturaba). El `data/watchlist.txt.example` sigue trackeable por extensión distinta.
+- **2026-05-28 — Spec 08, RMS.PA por sobre RMS**: usuario verificó en Yahoo Finance que el ticker correcto para Hermès es `RMS.PA` (Euronext Paris), no `RMS` (que apuntaría a otra empresa US). Anotado para futuras watchlists: tickers europeos requieren sufijo de exchange.
+- **2026-05-28 — Convención operativa**: cerrar cualquier sesión de trabajo con docs actualizados y pusheados. ROADMAP siempre debe reflejar el estado real del repo al cierre. Si una sesión termina con docs stale, la próxima sesión arranca con un sweep correctivo antes de poder trabajar — pérdida de tiempo evitable.
 
 ---
 

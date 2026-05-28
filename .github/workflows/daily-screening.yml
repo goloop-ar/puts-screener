@@ -50,7 +50,7 @@ jobs:
             cache-yfinance-v1-
 
       - name: Run screening pipeline
-        run: python -m puts_screener.run --universe sp500,nasdaq100,stoxx600
+        run: python -m puts_screener.run --universe sp500,nasdaq100,stoxx600,watchlist
 
       - name: Build Pages bundle
         run: python -m puts_screener.publish_pages --output output --bundle docs-build

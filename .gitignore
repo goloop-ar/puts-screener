@@ -44,9 +44,6 @@ htmlcov/
 # Provider cache (regenerable, transitorio)
 data/cache/
 
-# Watchlist personal (spec 08)
-data/watchlist.txt
-
 # Logs (regenerable por corrida)
 logs/
 
@@ -54,6 +51,7 @@ logs/
 *.docx
 *.txt
 !requirements.txt
+!data/watchlist.txt
 
 # Pages bundle temporal (regenerable por publish_pages)
 docs-build/

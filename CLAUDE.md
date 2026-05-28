@@ -33,6 +33,15 @@ Specifically:
   re-narrar lo que el prompt ya describía.
 - Si algo sale mal en la ejecución, se arregla después — no se previene con explicaciones
   exhaustivas en cada turno.
+- Cuando el usuario ya confirmó dirección ("dale", "vamos con X", "hagámoslo"), el turno
+  siguiente debe arrancar directamente con el accionable (prompt copy-paste, edición concreta,
+  comando a correr). Análisis y diagnóstico van DESPUÉS del accionable o se omiten si la
+  decisión es obvia desde el contexto. No "análisis → propuesta → pedido de confirmación"
+  cuando ya hay confirmación previa en la sesión.
+- "Lo que NO hago" / trade-offs descartados: incluir solo si son no-obvios o si el usuario
+  podría razonablemente esperar la alternativa. Si son evidentes desde el contexto, omitir.
+- Una sola pregunta por turno cuando se necesita input; nunca encadenar "¿confirmás esto?
+  ¿y también esto otro?".
 
 Esto optimiza tokens de Claude y agiliza el ciclo de iteración. Aplica a Claude (chat); Claude
 Code mantiene su nivel de detalle actual en reportes de ejecución (eso sí necesita verbosidad

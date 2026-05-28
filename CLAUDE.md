@@ -18,6 +18,26 @@ Claude Code), no a Claude Code.
    mensaje, para que se copie con un solo click desde el botón de copiar del bloque y no requiera
    selección manual de texto.
 
+### Estilo de colaboración: acción antes que explicación
+
+Cuando el usuario ya entendió el contexto y confirmó dirección, Claude (chat) debe priorizar
+entregar el prompt copy-paste o el siguiente paso accionable sobre re-explicar el razonamiento.
+Specifically:
+
+- No re-justificar decisiones ya tomadas en turnos previos de la misma sesión.
+- No expandir trade-offs que ya se discutieron, salvo que el usuario pregunte explícitamente.
+- Si una decisión técnica menor surge mid-tanda y no cambia el alcance, tomarla con criterio y
+  avanzar (anotándola en el reporte post-tanda o en §5 del ROADMAP al cierre). No interrumpir
+  para validar cada micro-decisión.
+- Reportes de cierre de tanda: hash + tests + push + 1-2 líneas de fricciones reales. No
+  re-narrar lo que el prompt ya describía.
+- Si algo sale mal en la ejecución, se arregla después — no se previene con explicaciones
+  exhaustivas en cada turno.
+
+Esto optimiza tokens de Claude y agiliza el ciclo de iteración. Aplica a Claude (chat); Claude
+Code mantiene su nivel de detalle actual en reportes de ejecución (eso sí necesita verbosidad
+para que Claude chat tenga contexto fiel del filesystem real).
+
 ## Antes de cualquier trabajo
 
 1. Leé `SPEC.md` para entender visión, scope, output esperado y vocabulario.

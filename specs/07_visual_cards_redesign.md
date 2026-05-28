@@ -235,7 +235,7 @@ _grid_for_currency(currency, spot):
     }.get(currency)
     if table is None: return _fallback_grid(spot)
     for threshold, grid in table:
-        if spot < threshold: return grid
+        if spot <= threshold: return grid  # techo inclusivo
     return table[-1][1]  # defensive
 
 _fallback_grid(spot):
@@ -245,7 +245,8 @@ _fallback_grid(spot):
     return round(raw / magnitude) * magnitude  # 1 sig fig
 
 _round_to_grid(value, grid):
-    return round(value / grid) * grid
+    # Round half-up determinista (no banker's rounding como round() de Python).
+    return floor(value / grid_unit + 0.5) * grid_unit
 ```
 
 **Edge: strikes colapsados.** Si por compactness de zona dos strikes redondean al mismo valor, se dejan así. Refleja la realidad de la grilla del broker; el humano interpreta "zona chica para diferenciar". No se hace anti-colapso (sería overfitting).
@@ -258,6 +259,7 @@ _round_to_grid(value, grid):
 render_mini_chart_svg(ohlcv, lower, upper, strikes, currency):
     n = min(len(ohlcv), MINI_CHART_LOOKBACK_DAYS)
     if n < MINI_CHART_MIN_DAYS: return ""
+    if "Close" not in ohlcv.columns: return ""
 
     closes = ohlcv["Close"].tail(n).tolist()
     dates  = ohlcv.index[-n:]
@@ -266,6 +268,7 @@ render_mini_chart_svg(ohlcv, lower, upper, strikes, currency):
     ys = closes + [lower, upper, strikes.aggressive, strikes.natural, strikes.conservative]
     y_min_raw, y_max_raw = min(ys), max(ys)
     span = y_max_raw - y_min_raw
+    if span == 0: return ""    # serie plana, chart sin sentido
     y_min = y_min_raw - span * MINI_CHART_Y_EXTRA_PCT
     y_max = y_max_raw + span * MINI_CHART_Y_EXTRA_PCT
 
@@ -305,6 +308,7 @@ render_mini_chart_svg(ohlcv, lower, upper, strikes, currency):
 - `polyline` no `path`: ~126 puntos × ~12 chars = ~1.5KB por chart. Con 30 cards → ~50KB extra en el HTML. Aceptable.
 - `currentColor` hereda del CSS de la card; el SVG se renderiza correctamente en light y dark mode sin lógica adicional.
 - Mes en el label de fecha: usar mapa manual `_MONTH_ABBR_ES = {1: "ene", 2: "feb", ...}` para evitar diferencia local/CI (Actions corre en inglés por default).
+- Implementación: cada tag SVG en una sola línea (sin newlines entre atributos), para output predecible. Los saltos de línea del pseudocódigo arriba son solo legibilidad de la spec.
 
 ### 6.3 Narrativa heurística
 
@@ -328,7 +332,7 @@ build_narrative(fc):
 **`_narrative_zone`** — describe la confluencia:
 
 - Width pct de la zona → calificativo: `width_pct < 0.02` = "compacta", `< 0.035` = "ajustada", `>= 0.035` = "amplia".
-- Tier label (ya disponible: `tier_label`) → "confluencia X".
+- Tier label: la narrativa NO menciona el tier. El tier ya aparece en el header de la card (estrellas + label). Repetirlo en la narrativa es duplicación visual. Decisión tomada en Tanda 4a tras observar que los labels reales de SCORE_TIER_LABELS ("Fuerte", "Borderline", "Mínimo viable") no encajaban gramaticalmente en la oración "Es una {tier_label}".
 - Lista de los elementos heavy (peso ≥2.5): mapea cada uno a una frase contextual.
   - `sma_200w` / `sma_200d` / `ema_200d` → "la SMA200 como referencia institucional de largo plazo".
   - `polarity` → "una resistencia rota previamente que ahora opera como soporte".
@@ -336,6 +340,14 @@ build_narrative(fc):
   - `hvn` → "un nodo de alto volumen en la zona (acumulación previa)".
   - `sma_50w` / `sma_50d` / `ema_50d` → "la SMA50 como soporte de mediano plazo".
   - Dedup por categoría: si hay SMA200W + EMA200D + SMA200D heavy, una sola mención de "SMA200".
+
+  **Nota:** sólo `sma_200d` / `sma_200w` / `ema_200d` (peso 3.0), `polarity` (2.5),
+  `avwap_pivot_low` / `avwap_earnings` (2.5) y `sma_50d` (2.5) superan el umbral
+  heavy (2.5). El resto (`hvn`, `avwap_52w_high`, `sma_50w`, `ema_50d`, `fib_*`,
+  `gap`, `divergence`) aparecen en la lista completa de elementos y en la banda
+  del chart pero no en el anclaje narrativo. Esto se descubrió en Tanda 3 y se
+  mantiene por consistencia con el gate estructural de Etapa 4 del rework de
+  scoring.
 - Concatena con "anclada en {n} elementos heavy: ..." si hay 2+. Si hay 1 solo heavy (raro post-gate estructural), "anclada en {heavy}".
 - Cierra con la distancia: "El precio está a {distance_pct}% del techo de la zona, dentro del rango operable" si `distance_pct < 0.08`, sino "al límite del rango operable ({distance_pct}%)".
 
@@ -346,6 +358,8 @@ build_narrative(fc):
 - Ex-div en ventana: si `binary_events.ex_div_en_45d` → "Ex-dividend en {dias_a_ex_div} días (${ex_div_amount}) — riesgo de asignación temprana del put si la opción queda ITM en esa fecha."
 - Macro: si hay `macro_events` global afectando ventana → "Eventos macro en ventana ({n}): {kinds}." (info ya está en el banner pero conviene reforzar en card por contexto local).
 - Si nada de lo anterior aplica: "Sin eventos binarios ni macro en ventana — situación técnica limpia."
+
+Nota de acoplamiento: `_narrative_what_to_watch` importa `compute_heuristic_strikes` y recomputa los strikes para mencionar el conservative. Misma computación corre también en `_format_candidate` (reports_html.py), `persistence.save_support_analysis` y `_build_row` (reports_csv.py). Triple/cuádruple cómputo intencional: cada consumidor permanece desacoplado del dict del template. Costo despreciable.
 
 ## 7. Persistencia
 
@@ -359,6 +373,10 @@ ALTER TABLE candidates ADD COLUMN strike_grid_unit REAL;
 ```
 
 Migración idempotente vía el mecanismo existente (chequear `PRAGMA table_info`, agregar si falta). Schema final: 41 columnas previas + 4 nuevas = 45.
+
+Implementación: la persistencia del proyecto está partida en tres funciones (`save_run` inserta desde ScreenedCandidate sin zona; `save_support_analysis` UPDATE con SupportedCandidate que tiene best_zone; `save_binary_events` con FinalCandidate). Los strikes derivan de la zona y se persisten en `save_support_analysis` (recomputados ahí; ver §6.3 nota de acoplamiento). Para candidatos sin best_zone (no pasan Paso 2), las 4 columnas quedan NULL.
+
+Migración idempotente: vía `_migrate_columns` (mecanismo existente que chequea PRAGMA table_info y agrega las columnas faltantes; las 4 columnas nuevas se suman al dict `_CANDIDATE_MIGRATION_COLUMNS`).
 
 CSV: 3 columnas al final (`strike_aggressive`, `strike_natural`, `strike_conservative`). `strike_grid_unit` queda solo en SQLite (debug).
 
@@ -456,11 +474,13 @@ puts-screener/
 │   └── templates/
 │       └── report.html.j2                    [MOD: grilla 1 col full-width + split + narrativa + banner strikes + sin truncado]
 └── tests/
-    ├── test_chart_svg.py                     [NEW]
-    ├── test_narrative.py                     [NEW]
-    ├── test_persistence.py                   [MOD: + 2 tests]
-    ├── test_reports_html.py                  [MOD: + 3 tests]
-    └── test_strikes.py                       [NEW]
+    ├── test_chart_svg.py                          [NEW]
+    ├── test_narrative.py                          [NEW]
+    ├── test_strikes.py                            [NEW]
+    └── final/
+        ├── test_persistence_binary_events.py      [MOD: + 2 tests strikes]
+        ├── test_reports_csv.py                    [MOD: 41→44 cols + asserts]
+        └── test_reports_html.py                   [MOD: + 3 integración, − truncado]
 ```
 
 5 archivos nuevos en `src/`, 4 modificados. 3 tests nuevos, 2 modificados. 1 spec nueva.
@@ -482,3 +502,15 @@ puts-screener/
 - **2026-05-27 — Spec 07, narrativa no persiste**: es función pura de campos ya persistidos en `candidates`. Regenerable en cualquier momento sin pérdida. Evita inflar la DB.
 - **2026-05-27 — Spec 07, `narrative.py` retorna HTML pre-formateado**: el template recibe `narrative_html` listo para `\|safe`. Mantiene el template "puramente presentacional" (regla del proyecto) y la lógica de mapeo en código testeable.
 - **Extensión futura — Backend LLM opcional**: cuando exista criterio de uso (1-2 semanas con la heurística), se puede agregar `NARRATIVE_BACKEND=anthropic|gemini|groq` como env var. La función `build_narrative` se mantiene como interfaz; solo cambia la implementación. Tests del backend LLM van con mocks. No implementado.
+- **2026-05-27 — Tanda 1, lookup de grilla con `spot <= threshold`**: el pseudocódigo original decía `<` estricto, lo que rompía `test_compute_typical` (spot=100 debe usar grilla 1.0, no 2.5). Semántica correcta: techo inclusivo. Fix aplicado en código y en spec §6.1.
+- **2026-05-27 — Tanda 1, redondeo half-up determinista**: `round()` de Python usa banker's rounding (`round(96.5)==96`), contraintuitivo para strikes financieros. Implementado como `floor(value/grid + 0.5)*grid`. Fix aplicado en código y en spec §6.1.
+- **2026-05-27 — Tanda 2, guard span=0**: serie plana de precios causaba div-by-zero en `y(p)`. Agregado retorno temprano `""`. Fix aplicado en código y en spec §6.2.
+- **2026-05-27 — Tanda 2, reuso de `format_price` de `formatting.py`**: spec 06 ya tenía el formateador por divisa. Reusado en `_format_y_label`. Consecuencia: labels Y de pence salen "500.00p" (con decimales) en vez de "500p". Aceptado por consistencia con el resto del reporte.
+- **2026-05-27 — Tanda 3, `SCORE_TIER_LABELS` vive en `config_reports.py`**: la spec original decía `config_supports`. Hallazgo de inspección. Fix aplicado en spec §6.3.
+- **2026-05-27 — Tanda 3/4a, narrativa NO menciona el tier**: los labels reales ("Fuerte", "Borderline", "Mínimo viable") no encajaban en "Es una {tier_label}" gramaticalmente. Decisión: sacar el tier de la narrativa entirely. El tier ya está en el header. Cleanup en Tanda 4a. Fix aplicado en spec §6.3.
+- **2026-05-27 — Tanda 3, `hvn` y otros pesos < 2.5 nunca aparecen en anclaje narrativo**: `hvn` (2.0), `avwap_52w_high` (2.0), `sma_50w` (2.0), `ema_50d` (1.5) están por debajo del umbral heavy (2.5). Mantienen su lugar en la lista completa de elementos y en la banda del chart, pero no en el listado de heavies de la narrativa. Documentado en spec §6.3.
+- **2026-05-27 — Tanda 3/4a/4b, triple/cuádruple cómputo de strikes**: `narrative._narrative_what_to_watch`, `reports_html._format_candidate`, `persistence.save_support_analysis` y `reports_csv._build_row` todos importan `compute_heuristic_strikes` y lo invocan por separado. Mantiene cada consumidor desacoplado del dict del template y de `FinalCandidate`. Costo despreciable (nanosegundos). Si en el futuro pesara, centralizar en el pipeline.
+- **2026-05-27 — Tanda 4a, sin variable mutable `result` en `_format_candidate`**: la función retorna el dict como literal directamente. Mantuve el patrón existente computando strikes y chart_svg antes del `return` y agregando las 9 claves dentro del literal del dict.
+- **2026-05-27 — Tanda 4a, currency defensivo `or "USD"`**: si el provider no trae divisa, asumir USD. Efecto: la clave del dict `"currency"` cambia de `None` a `"USD"` cuando faltaba. No rompe nada (template no renderiza `c.currency`); `format_price` ya retornaba "$" por default.
+- **2026-05-27 — Tanda 4b, persistencia de strikes en `save_support_analysis`**: no existe una sola "función que persiste FinalCandidate" en el proyecto; la persistencia está partida en 3 fases. Strikes derivan de la zona (Paso 2), su lugar natural es `save_support_analysis`. Para candidatos sin best_zone, las 4 columnas quedan NULL. Fix aplicado en spec §7.
+- **2026-05-27 — Tanda 4b, dos tests preexistentes actualizados como consecuencia inevitable del cambio**: `test_csv_has_41_columns_in_exact_order` → `test_csv_has_44_columns_in_exact_order` (3 columnas nuevas de strikes); `test_html_truncates_elements_over_8` → `test_html_renders_all_elements_no_truncation` (rediseño elimina el truncado por §3.3). Flaggeados al cerrar Tanda 4b.

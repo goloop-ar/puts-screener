@@ -188,6 +188,24 @@ Cuatro mejoras coordinadas sobre el output del screener:
 - 13/13 best zones tienen confirmador dinámico.
 - 6/13 candidatos saturan el cap del density multiplier (×1.5) — observación para watch, no fix.
 
+### Spec 07 — Rediseño visual de cards + strikes + mini-chart + narrativa ✅ Cerrada (2026-05-27)
+
+Implementación en 4 tandas:
+
+- [x] **Tanda 1**: `strikes.py` + `models_reports.py` con `HeuristicStrikes` + constantes de grillas por divisa en `config_reports.py`. 10 tests, commit `4558115`.
+- [x] **Tanda 2**: `chart_svg.py` con `render_mini_chart_svg` (SVG inline 480×200, banda de zona + 3 strikes punteados + polyline 126 días + spot final) + constantes `MINI_CHART_*`. 7 tests, commit `97f3c20`. Reusa `format_price` de `formatting.py` (spec 06).
+- [x] **Tanda 3**: `narrative.py` heurístico determinista con 3 párrafos por card (Situación / Zona / Qué mirar). Función pura, no persiste. 10 tests, commit `e3993ff`.
+- [x] **Tanda 4a**: integración en `_format_candidate` (reports_html.py) — el dict gana 9 claves nuevas (3 strikes raw + 3 formatted + chart_svg + chart_placeholder + narrative_html). 3 tests, commit `eee4785`. Cleanup: la narrativa quedó sin mencionar el tier (gramática rara con labels reales; ya está en el header).
+- [x] **Tanda 4b**: rediseño del template `report.html.j2` (grilla 1 col full-width, `card-split` 50/50 texto+chart, narrativa arriba de elementos, lista completa sin truncado, `strikes-banner` full-width). Migración SQLite (4 columnas: `strike_aggressive`, `strike_natural`, `strike_conservative`, `strike_grid_unit`) en `save_support_analysis`. CSV: 3 columnas al final (grid_unit solo en SQLite). 2 tests de persistencia + 2 tests preexistentes actualizados (CSV pasó de 41 a 44 columnas; truncado de HTML eliminado). Commit `cb80292`.
+
+**Validación empírica (smoke `--limit 50`):**
+- Wall-time: 13.2s, EXIT=0, sin warnings.
+- Embudo: Universo 50 → Paso 1: 8 → Paso 2: 1 candidato.
+- HTML: 14 KB. SVG por card: ~2.5 KB (orden esperado, levemente mayor que la estimación de spec por labels Y/X y aria-label).
+- Estructuras renderizadas: card-split, strikes-banner con 3 dots aggressive/natural/conservative + yield-note, narrative con 3 `<p>`, mini-chart con SVG real. Sin placeholder, sin "+N más".
+
+**Tests:** 404 (post-spec-06) → 436 (post-spec-07). +32 tests nuevos.
+
 ### Estadísticas
 
 - **Tests**: 404 verdes
@@ -201,13 +219,9 @@ Cuatro mejoras coordinadas sobre el output del screener:
 
 **Sin issues abiertos.**
 
-**Pendiente humano para activar Fase 3 en producción** (no bloquea código local):
-- Push de los 4 commits locales de la spec 05 (`b49a950`, `d4fb3e5`, `aafb686`, `197bddc`).
-- Setup one-time en GitHub Settings: Pages source = `GitHub Actions`, workflow permissions = read+write, aceptar environment `github-pages` en primer run.
-- Primer `workflow_dispatch` manual desde la UI para validar el ciclo completo (run + commit + deploy a Pages).
-- Validación humana del sitio publicado.
-- Push de los 3 commits locales de la spec 06: `2a9a896`, `0957a95`, `b1a2f33`.
-- Validar primer cron real post-push con código spec 06 (lunes 22 UTC). Mirar distribución de scores/tiers en condiciones de cache caliente y sin rate-limiting agudo. Recalibrar constantes solo si la distribución se ve mal después de 2-3 crones.
+**Pendiente humano para activar spec 07 en producción** (no bloquea código local):
+- Push de los 7 commits locales de spec 07 (6 de implementación + 1 de cierre docs).
+- Observar primer cron real con código spec 07 (próximo día hábil 22:00 UTC). Mirar con varias cards en lugar de una sola del smoke: legibilidad del split texto/chart, distribución de strikes contra zona en variedad de tickers, longitud típica de la narrativa.
 
 Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + charts interactivos) o Fase 4 (data de opciones, futuro lejano).
 
@@ -217,7 +231,7 @@ Próximo bloque de trabajo en código: Fase 5 (web app local con Streamlit + cha
 
 ### 3.1 Inmediato (próxima sesión)
 
-Validar Fase 3 + Spec 06 en producción (ver §2 "Pendiente humano"). Una vez verificado al menos 1 cron con código spec 06 en condiciones normales, decidir próximo bloque: Spec 07 (UX visual de cards + strikes sugeridos heurísticos) o Fase 5 (web app local). Spec 08 (watchlist personal) y Spec 06bis (recalibración si hace falta) quedan en backlog priorizado por debajo.
+Validar spec 07 en producción (ver §2 "Pendiente humano"). Una vez verificado al menos 1 cron con código spec 07 en condiciones normales, decidir próximo bloque: Spec 08 (watchlist personal), Spec 06bis (recalibración si la distribución de scores/tiers lo justifica), Spec Telegram, o Fase 5 (web app local con Streamlit).
 
 ### 3.2 Fase 3 — Producción
 
@@ -338,6 +352,8 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Saturación del density multiplier en cap 1.5 (post-spec-06 watch)**: en el run de Tanda 3 calibración, 6 de 13 best zones pegaron el cap superior del multiplier (×1.5). El multiplier diferencia poco entre las zonas más densas (todas saturan). Si la observación se confirma en crones reales sin rate-limiting, considerar subir `REFERENCE_DENSITY` (de 100 a ~150) y/o `MAX_DENSITY_MULTIPLIER` (de 1.5 a ~1.75) para ampliar el rango lineal.
 - **T1 (banda 5.0-6.5) estructuralmente vacío (post-spec-06 watch)**: una zona con score base 5.0 multiplicado por ≥1.0 ya cae en T2 (≥7.5). T1 solo se alcanza con multiplier <1.0, que requiere densidad <100 — rara post-clustering compacto. No es bug; es consecuencia del diseño multiplier. Aceptable: tier 1 sigue siendo "raro" como debe ser.
 - **Gate de ancho silencioso (post-spec-06 observabilidad)**: `ZONE_MAX_WIDTH_PCT` descarta clusters con un `continue` en `cluster_into_zones` antes de persistir, sin loguear. No medible a posteriori cuántos clusters descartó. Si en algún momento se sospecha que descarta demasiado o demasiado poco, instrumentar un log o contador en el módulo. Bajo dolor actual.
+- **SVG por card más pesado de lo estimado en spec (post-spec-07 watch)**: el SVG real es ~2.5KB vs ~1.5KB que estimaba spec 07 §6.2 (labels Y/X + aria-label sumaron). Con 30 cards eso son ~75KB extra en el HTML (~150KB total estimado), no 50KB. Sigue siendo aceptable. Observar tamaño del HTML en crones reales con cards completas; si se vuelve problemático (>500KB) optimizar truncando precisión de coords o eliminando labels redundantes.
+- **Caso ACGL 2026-05-27 (post-spec-07 referencia)**: ACGL salió como T1 con zona compacta $93.35–$95.32 y score 6 en el run del 2026-05-26; al día siguiente cayó -4.16% intra-día rompiendo el conservative. La zona estaba correctamente identificada (confirmada por chart), score 6 era tier medio (no "invulnerable"), y los flags macro (FOMC 26d + CPI 19d) estaban presentes. El screener funcionó como diseñado — el stop estructural del SOP (cierre debajo del conservative → revisar tesis) es la respuesta correcta a este tipo de evento idiosincrático. Útil conservar como caso histórico para evaluar narrativa de spec 07 y, más adelante, para análisis sistemático sobre `screening_history.db` (cuántas zonas detectadas rompieron vs aguantaron, qué patrón discriminador adicional podría existir).
 
 ---
 
@@ -389,6 +405,7 @@ Para no buscarlas en specs:
 - **2026-05-27 — Spec 06, distance_pct ahora se mide contra upper_bound** (no contra center_price). El upper es lo que toca primero el precio si baja, métrica más fiel al riesgo del strike.
 - **2026-05-27 — Spec 06, calibración Tanda 3 cerrada sin cambios a constantes**: el run de validación tuvo rate-limiting masivo de yfinance (~530 de 751 skips transitorios), muestra no representativa. Tier shape observado (T5=1, T4=4, T3=4, T2=4, T1=0) es razonable. La validación real son los crones de GitHub Actions con cache caliente. Recalibrar solo después de 2-3 crones limpios si la distribución se ve mal.
 - **2026-05-27 — Spec 06, GBp display como sufijo "p" sin conversión a libras**: yfinance retorna magnitudes de LSE en peniques; convertir requeriría dividir todos los valores numéricos (zonas, targets) y eso toca múltiples lugares. Más simple: mantener magnitud, agregar sufijo "p". Reversible bumpeando `GBp.divisor` a 100 en config_reports si en el futuro queremos libras.
+- **2026-05-27 — Spec 07 cerrada en código**: 4 tandas, 32 tests nuevos, 6 archivos nuevos en src + 4 modificados, decisiones registradas en spec 07 §11 + patch de Tandas 1-4 aplicado al cierre. Pendiente activación en producción vía cron.
 
 ---
 

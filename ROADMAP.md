@@ -323,12 +323,12 @@ Reemplazo del sistema legacy T1-T5 por sistema dual: `regime` (uptrend/lateral/d
 - 2 candidatos con modificador `bullish_divergence` en composite label (CAH y CNP, ambos uptrend).
 - Confirma diseño: en mercado alcista 2026 la mayoría sigue siendo pullback_in_uptrend, pero el sistema dual captura situaciones distintas (downtrend + W; reversal por HMA flip) que el sistema T1-T5 colapsaba todo a T1.
 
-Commit `<HASH>`. <N_FINAL> tests verdes.
+Commit `dbbdd51`. 572 tests verdes.
 
 ### Estadísticas
 
-- **Tests**: 501 verdes
-- **Commits**: 135
+- **Tests**: 572 verdes
+- **Commits**: 137
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 

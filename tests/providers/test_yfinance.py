@@ -176,16 +176,25 @@ def test_ex_dividend_cache_hit_skips_ticker(tmp_cache_root, monkeypatch):
     mock_get.assert_not_called()
 
 
-def test_ohlcv_cache_hit_skips_ticker(tmp_cache_root, sample_ohlcv_df, monkeypatch):
+def test_ohlcv_cache_hit_triggers_recent_refresh(tmp_cache_root, sample_ohlcv_df, monkeypatch):
+    # spec 10 / 2026-05-29 fix: cache hit dispara refetch incremental de últimas N=7
+    # barras. El mock devuelve vacío → cache se conserva, slice se devuelve igual.
     cache.write_ohlcv("AAPL", "1d", sample_ohlcv_df)
-    mock_get = MagicMock()
-    monkeypatch.setattr(yfinance_provider, "_get_ticker", mock_get)
+    tk = MagicMock()
+    tk.history.return_value = pd.DataFrame()  # recent fetch vacío (no actualiza)
+    _mock_ticker(monkeypatch, tk)
     provider = YFinanceProvider()
     start = sample_ohlcv_df.index[2].date()
     end = sample_ohlcv_df.index[8].date()
     df = provider.get_ohlcv("AAPL", start, end, "1d")
     assert not df.empty
-    mock_get.assert_not_called()
+    assert len(df) == 7
+    # SÍ se invocó yfinance (era cache miss policy antes; ahora refresca siempre).
+    tk.history.assert_called_once()
+    # El call usa period="7d" (refetch incremental), no start/end.
+    kwargs = tk.history.call_args.kwargs
+    assert kwargs.get("period") == "7d"
+    assert "start" not in kwargs
 
 
 def test_profile_cache_hit_skips_ticker(tmp_cache_root, monkeypatch):
@@ -551,3 +560,151 @@ def test_with_retry_delay_schedule(monkeypatch):
     with pytest.raises(YFRateLimitError):
         yfinance_provider._with_retry(fn, method="test", max_attempts=3, base_delay=2.0)
     assert sleeps == [2.0, 4.0]  # 2s tras intento 1, 4s tras intento 2; intento 3 terminal
+
+
+# --- OHLCV cache refresh incremental (fix 2026-05-29, ver ROADMAP §5) ---
+
+
+def _ohlcv_df(dates: list[str], close_base: float = 100.0) -> pd.DataFrame:
+    """Construye un DataFrame OHLCV mínimo a partir de fechas ISO."""
+    idx = pd.DatetimeIndex([pd.Timestamp(d) for d in dates])
+    n = len(idx)
+    return pd.DataFrame(
+        {
+            "Open": [close_base + i for i in range(n)],
+            "High": [close_base + i + 1 for i in range(n)],
+            "Low": [close_base + i - 1 for i in range(n)],
+            "Close": [close_base + i for i in range(n)],
+            "Volume": [1_000_000 + i for i in range(n)],
+        },
+        index=idx,
+    )
+
+
+def test_ohlcv_cache_miss_fetches_full_range(tmp_cache_root, monkeypatch):
+    # Sin cache → fetch con start/end (no period).
+    full = _ohlcv_df(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"])
+    tk = MagicMock()
+    tk.history.return_value = full
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    df = provider.get_ohlcv("AAPL", date(2024, 1, 2), date(2024, 1, 5), "1d")
+    assert len(df) == 4
+    # En cache miss usamos start/end, no period.
+    kwargs = tk.history.call_args.kwargs
+    assert kwargs.get("start") == date(2024, 1, 2)
+    assert kwargs.get("end") == date(2024, 1, 5)
+    assert "period" not in kwargs
+
+
+def test_ohlcv_cache_hit_recent_adds_new_bars(tmp_cache_root, monkeypatch):
+    # Cache hasta 2024-01-08; recent fetch trae 02..10 → merge añade 09, 10.
+    cached = _ohlcv_df(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-08"])
+    cache.write_ohlcv("AAPL", "1d", cached)
+    recent = _ohlcv_df(
+        [
+            "2024-01-02",
+            "2024-01-03",
+            "2024-01-04",
+            "2024-01-05",
+            "2024-01-08",
+            "2024-01-09",
+            "2024-01-10",
+        ],
+        close_base=200.0,
+    )
+    tk = MagicMock()
+    tk.history.return_value = recent
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    df = provider.get_ohlcv("AAPL", date(2024, 1, 2), date(2024, 1, 10), "1d")
+    # 7 bars del rango pedido (incluye las nuevas).
+    assert len(df) == 7
+    assert df.index[-1].date() == date(2024, 1, 10)
+    # Persistido en cache (merge).
+    persisted = cache.read_ohlcv_raw("AAPL", "1d")
+    assert persisted.index[-1].date() == date(2024, 1, 10)
+
+
+def test_ohlcv_cache_hit_recent_overwrites_existing(tmp_cache_root, monkeypatch):
+    # Cache tiene close=100 para bar 2024-01-05; recent trae close=200 → merge usa 200.
+    cached = _ohlcv_df(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"], close_base=100.0)
+    cache.write_ohlcv("AAPL", "1d", cached)
+    recent = _ohlcv_df(["2024-01-04", "2024-01-05"], close_base=200.0)
+    tk = MagicMock()
+    tk.history.return_value = recent
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    df = provider.get_ohlcv("AAPL", date(2024, 1, 2), date(2024, 1, 5), "1d")
+    # bar 2024-01-05: el recent (close=201) gana sobre el cached (close=103).
+    assert df.loc[pd.Timestamp("2024-01-05"), "Close"] == 201.0
+
+
+def test_ohlcv_refresh_failure_falls_back_to_cache(tmp_cache_root, monkeypatch):
+    # Cache existe; _fetch_recent rompe → devolvemos cache stale + warning.
+    cached = _ohlcv_df(["2024-01-02", "2024-01-03", "2024-01-04"])
+    cache.write_ohlcv("AAPL", "1d", cached)
+    tk = MagicMock()
+    tk.history.side_effect = RuntimeError("upstream boom")
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider(max_attempts=1)  # 1 attempt → propaga inmediato
+    df = provider.get_ohlcv("AAPL", date(2024, 1, 2), date(2024, 1, 4), "1d")
+    assert len(df) == 3
+    # Cache no se actualizó (sigue siendo la versión vieja).
+    persisted = cache.read_ohlcv_raw("AAPL", "1d")
+    assert persisted.index[-1].date() == date(2024, 1, 4)
+
+
+def test_ohlcv_recent_empty_keeps_cache(tmp_cache_root, monkeypatch):
+    # Recent vacío (weekend/feriado) → cache no se actualiza, slice se devuelve.
+    cached = _ohlcv_df(["2024-01-02", "2024-01-03", "2024-01-04"])
+    cache.write_ohlcv("AAPL", "1d", cached)
+    tk = MagicMock()
+    tk.history.return_value = pd.DataFrame()
+    _mock_ticker(monkeypatch, tk)
+    provider = YFinanceProvider()
+    df = provider.get_ohlcv("AAPL", date(2024, 1, 2), date(2024, 1, 4), "1d")
+    assert len(df) == 3
+    assert df.index[-1].date() == date(2024, 1, 4)
+
+
+# --- merge_ohlcv unit tests ---
+
+
+def test_merge_ohlcv_adds_new_bars():
+    cached = _ohlcv_df(["2024-01-02", "2024-01-03"], close_base=100.0)
+    fresh = _ohlcv_df(["2024-01-04", "2024-01-05"], close_base=200.0)
+    merged = cache.merge_ohlcv(cached, fresh)
+    assert len(merged) == 4
+    assert merged.index[0].date() == date(2024, 1, 2)
+    assert merged.index[-1].date() == date(2024, 1, 5)
+
+
+def test_merge_ohlcv_overwrites_on_overlap():
+    cached = _ohlcv_df(["2024-01-02", "2024-01-03"], close_base=100.0)
+    fresh = _ohlcv_df(["2024-01-03", "2024-01-04"], close_base=300.0)
+    merged = cache.merge_ohlcv(cached, fresh)
+    # bar 2024-01-03 gana del fresh (close=300, no 101 del cached).
+    assert merged.loc[pd.Timestamp("2024-01-03"), "Close"] == 300.0
+    assert merged.loc[pd.Timestamp("2024-01-02"), "Close"] == 100.0
+
+
+def test_merge_ohlcv_empty_fresh_returns_cached():
+    cached = _ohlcv_df(["2024-01-02", "2024-01-03"])
+    merged = cache.merge_ohlcv(cached, pd.DataFrame())
+    assert len(merged) == 2
+
+
+def test_merge_ohlcv_empty_cached_returns_fresh():
+    fresh = _ohlcv_df(["2024-01-02", "2024-01-03"])
+    merged = cache.merge_ohlcv(pd.DataFrame(), fresh)
+    assert len(merged) == 2
+
+
+def test_merge_ohlcv_result_sorted():
+    # Construir con orden mezclado: cached=[5, 2], fresh=[8, 3].
+    cached = _ohlcv_df(["2024-01-05", "2024-01-02"])
+    fresh = _ohlcv_df(["2024-01-08", "2024-01-03"])
+    merged = cache.merge_ohlcv(cached, fresh)
+    dates = [d.date() for d in merged.index]
+    assert dates == sorted(dates)

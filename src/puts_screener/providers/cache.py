@@ -141,3 +141,20 @@ def write_ohlcv(ticker: str, interval: str, df: pd.DataFrame) -> None:
         return
     path = cache_path("ohlcv", f"{ticker}_{interval}.parquet")
     write_parquet(path, df)
+
+
+def merge_ohlcv(cached_df: pd.DataFrame, fresh_df: pd.DataFrame) -> pd.DataFrame:
+    """Mergea `fresh_df` sobre `cached_df`. Filas de fresh overwritean por índice.
+
+    Las barras nuevas (fechas en fresh pero no en cached) se concatenan; las barras
+    con overlap (fechas en ambos) usan los valores de fresh. Resultado ordenado por
+    índice ascendente, sin duplicados.
+    """
+    if fresh_df is None or fresh_df.empty:
+        return cached_df
+    if cached_df is None or cached_df.empty:
+        return fresh_df
+    # `~isin` filtra de cached las fechas que están en fresh; luego concat + sort.
+    cached_kept = cached_df.loc[~cached_df.index.isin(fresh_df.index)]
+    merged = pd.concat([cached_kept, fresh_df])
+    return merged.sort_index()

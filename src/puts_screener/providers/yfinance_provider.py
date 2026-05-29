@@ -12,7 +12,8 @@ import yfinance as yf
 from yfinance.exceptions import YFRateLimitError
 
 from .base import DataProvider, ProviderError
-from .cache import get_cached, read_ohlcv_slice, write_cache, write_ohlcv
+from .cache import get_cached, merge_ohlcv, read_ohlcv_raw, write_cache, write_ohlcv
+from .config import OHLCV_REFRESH_DAYS, is_cache_disabled
 from .models import (
     AnalystData,
     CompanyProfile,
@@ -278,11 +279,54 @@ class YFinanceProvider(DataProvider):
         self.base_delay = base_delay
 
     def get_ohlcv(self, ticker: str, start: date, end: date, interval: str = "1d") -> pd.DataFrame:
-        cached = read_ohlcv_slice(ticker, interval, start, end)
-        if cached is not None:
-            logger.info("yfinance cache hit for %s [%s]", ticker, interval)
-            return cached
+        """OHLCV con cache + refetch incremental de últimas N=OHLCV_REFRESH_DAYS barras.
 
+        Política (decisión 2026-05-29, ver ROADMAP §5):
+        - Cache miss → fetch full range [start, end], persistir, devolver.
+        - Cache hit → refetch últimas N barras, mergear sobre cache, persistir, devolver slice.
+        - Refetch falla → fallback al cache stale con warning (modo degradado).
+
+        Esto garantiza que cada call devuelva data hasta el último cierre disponible
+        en yfinance, sin perder eficiencia para la ventana histórica.
+        """
+        cache_active = not is_cache_disabled()
+        cached = read_ohlcv_raw(ticker, interval) if cache_active else None
+
+        if cached is None or cached.empty:
+            # Cache miss: fetch full + persistir.
+            df = self._fetch_full(ticker, start, end, interval)
+            if cache_active:
+                write_ohlcv(ticker, interval, df)
+            return df
+
+        # Cache hit: refetch incremental + merge.
+        start_ts = pd.Timestamp(start)
+        end_ts = pd.Timestamp(end)
+        try:
+            recent = self._fetch_recent(ticker, interval, days=OHLCV_REFRESH_DAYS)
+            if recent is not None and not recent.empty:
+                merged = merge_ohlcv(cached, recent)
+                write_ohlcv(ticker, interval, merged)
+                logger.info(
+                    "yfinance cache refreshed for %s [%s] (last bar: %s)",
+                    ticker,
+                    interval,
+                    merged.index[-1].date(),
+                )
+                return merged.loc[start_ts:end_ts]
+            # Recent vacío (feriado/weekend): no actualizar cache, devolver slice.
+            logger.info("yfinance recent fetch empty for %s, using cached", ticker)
+        except Exception as exc:
+            logger.warning(
+                "OHLCV refresh failed for %s: %s. Returning cached data (last bar: %s)",
+                ticker,
+                exc,
+                cached.index[-1].date() if not cached.empty else "n/a",
+            )
+        return cached.loc[start_ts:end_ts]
+
+    def _fetch_full(self, ticker: str, start: date, end: date, interval: str) -> pd.DataFrame:
+        """Fetch del rango completo desde yfinance con retry. Raises ProviderError si vacío."""
         df = _with_retry(
             lambda: _get_ticker(to_yfinance(ticker)).history(
                 start=start, end=end, interval=interval, auto_adjust=False
@@ -293,15 +337,31 @@ class YFinanceProvider(DataProvider):
         )
         if df is None or df.empty:
             raise ProviderError(f"yfinance returned no OHLCV for {ticker}")
+        return self._canonicalize(df)
 
+    def _fetch_recent(self, ticker: str, interval: str, days: int) -> pd.DataFrame | None:
+        """Fetch últimas `days` barras desde yfinance. Reusa retry/backoff. None si vacío."""
+        df = _with_retry(
+            lambda: _get_ticker(to_yfinance(ticker)).history(
+                period=f"{days}d", interval=interval, auto_adjust=False
+            ),
+            method=f"get_ohlcv_recent({ticker})",
+            max_attempts=self.max_attempts,
+            base_delay=self.base_delay,
+        )
+        if df is None or df.empty:
+            return None
+        return self._canonicalize(df)
+
+    @staticmethod
+    def _canonicalize(df: pd.DataFrame) -> pd.DataFrame:
+        """Normaliza el DataFrame de yfinance: drop tz, columnas canónicas, mismo orden."""
         if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is not None:
             df.index = df.index.tz_localize(None)
         for column in _CANONICAL_COLUMNS:
             if column not in df.columns:
                 df[column] = float("nan")
-        df = df[_CANONICAL_COLUMNS]
-        write_ohlcv(ticker, interval, df)
-        return df
+        return df[_CANONICAL_COLUMNS]
 
     def get_company_profile(self, ticker: str) -> CompanyProfile:
         cache_key = f"yfinance_{ticker}"

@@ -47,7 +47,7 @@ CSV_COLUMNS: tuple[str, ...] = (
     "sector",
     "country",
     "market_cap",
-    "tipo_T",
+    "composite_label",  # spec 10: reemplaza tipo_T en el mismo slot
     "justificacion_tipo",
     "spot",
     "zona_min",
@@ -86,6 +86,11 @@ CSV_COLUMNS: tuple[str, ...] = (
     "strike_aggressive",
     "strike_natural",
     "strike_conservative",
+    # spec 10: clasificación dual
+    "regime",
+    "primary_trigger",
+    "triggers",
+    "wheel_candidate",
 )
 
 
@@ -137,7 +142,7 @@ def _build_row(fc: FinalCandidate) -> dict:
         "sector": profile.sector,
         "country": profile.country,
         "market_cap": profile.market_cap_usd,
-        "tipo_T": classification.tipo if classification else None,
+        "composite_label": screened.composite_label or "",
         "justificacion_tipo": classification.justificacion if classification else None,
         "spot": screened.spot,
         "zona_min": zone.lower_bound,
@@ -176,6 +181,11 @@ def _build_row(fc: FinalCandidate) -> dict:
         "strike_aggressive": strikes.aggressive,
         "strike_natural": strikes.natural,
         "strike_conservative": strikes.conservative,
+        # spec 10: clasificación dual
+        "regime": screened.regime or "",
+        "primary_trigger": screened.primary_trigger or "",
+        "triggers": "|".join(screened.triggers),
+        "wheel_candidate": 1 if screened.wheel_candidate else 0,
     }
     # None → "" (no "None"), explícito para no depender del comportamiento del módulo csv.
     return {key: ("" if value is None else value) for key, value in row.items()}

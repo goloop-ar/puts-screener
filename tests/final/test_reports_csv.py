@@ -21,16 +21,24 @@ def test_csv_created_with_expected_name(tmp_path, final_candidate_factory):
     assert path.exists()
 
 
-def test_csv_has_44_columns_in_exact_order(tmp_path, final_candidate_factory):
+def test_csv_has_48_columns_in_exact_order(tmp_path, final_candidate_factory):
+    # spec 10: tipo_T → composite_label (mismo slot), + 4 columnas al final
+    # (regime, primary_trigger, triggers, wheel_candidate). Total 48.
     path = write_csv_report([final_candidate_factory()], output_dir=tmp_path)
     fieldnames, _ = _read_csv(path)
     assert fieldnames == list(CSV_COLUMNS)
-    assert len(fieldnames) == 44
+    assert len(fieldnames) == 48
+    assert fieldnames[5] == "composite_label"  # spec 10: reemplaza tipo_T
     assert fieldnames[39] == "universes"  # columna 40
     assert fieldnames[40] == "momentum_signals"  # columna 41
     assert fieldnames[41] == "strike_aggressive"  # columna 42 (spec 07)
     assert fieldnames[42] == "strike_natural"  # columna 43
-    assert fieldnames[43] == "strike_conservative"  # columna 44, al final
+    assert fieldnames[43] == "strike_conservative"  # columna 44
+    # spec 10: 4 columnas nuevas al final.
+    assert fieldnames[44] == "regime"
+    assert fieldnames[45] == "primary_trigger"
+    assert fieldnames[46] == "triggers"
+    assert fieldnames[47] == "wheel_candidate"
 
 
 def test_csv_score_formatted_one_decimal(tmp_path, final_candidate_factory):

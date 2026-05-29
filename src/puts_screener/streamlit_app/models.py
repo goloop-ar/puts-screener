@@ -61,6 +61,11 @@ class CandidateRow:
     tiene_eventos_macro_en_45d: bool
     strike_natural: float | None
     currency: str
+    # spec 10 — clasificación dual. Defaults para compat con runs históricos.
+    regime: str | None = None
+    primary_trigger: str | None = None
+    composite_label: str = ""
+    wheel_candidate: bool = False
 
 
 @dataclass(frozen=True)
@@ -84,3 +89,9 @@ class CandidateDetail:
     strikes: dict[str, float | None]
     flags_legibles: tuple[str, ...]
     momentum_signals: tuple[str, ...]
+    # spec 10 — clasificación dual (defaults para compat con runs históricos)
+    regime: str | None = None
+    primary_trigger: str | None = None
+    composite_label: str = ""
+    wheel_candidate: bool = False
+    triggers: tuple[str, ...] = ()

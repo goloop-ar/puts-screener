@@ -1,4 +1,4 @@
-"""Tests de filters (spec 09 tanda 1)."""
+"""Tests de filters (spec 09 tanda 1 + spec 10 tanda 3)."""
 
 from puts_screener.streamlit_app.filters import FilterState, apply_filters
 from puts_screener.streamlit_app.models import CandidateRow
@@ -12,6 +12,9 @@ def _row(
     earnings=False,
     ex_div=False,
     macro=False,
+    regime: str | None = "uptrend",
+    primary_trigger: str | None = "pullback_in_uptrend",
+    wheel_candidate: bool = False,
 ) -> CandidateRow:
     return CandidateRow(
         ticker=ticker,
@@ -29,6 +32,10 @@ def _row(
         tiene_eventos_macro_en_45d=macro,
         strike_natural=100.0,
         currency="USD",
+        regime=regime,
+        primary_trigger=primary_trigger,
+        composite_label=f"{regime.title()}: ..." if regime else "",
+        wheel_candidate=wheel_candidate,
     )
 
 
@@ -38,9 +45,24 @@ def test_apply_filters_empty_state_returns_all():
     assert [r.ticker for r in result] == ["A", "B", "C"]
 
 
-def test_apply_filters_by_tier():
-    rows = [_row("A", tipo="T1"), _row("B", tipo="T2"), _row("C", tipo="T1")]
-    result = apply_filters(rows, FilterState(tier=frozenset({"T1"})))
+def test_apply_filters_by_regime():
+    # spec 10: filtro por régimen reemplaza filtro por T1-T5.
+    rows = [
+        _row("A", regime="uptrend"),
+        _row("B", regime="downtrend"),
+        _row("C", regime="uptrend"),
+    ]
+    result = apply_filters(rows, FilterState(regime=frozenset({"uptrend"})))
+    assert [r.ticker for r in result] == ["A", "C"]
+
+
+def test_apply_filters_by_primary_trigger():
+    rows = [
+        _row("A", primary_trigger="pullback_in_uptrend"),
+        _row("B", primary_trigger="double_bottom_confirmed"),
+        _row("C", primary_trigger="pullback_in_uptrend"),
+    ]
+    result = apply_filters(rows, FilterState(primary_trigger=frozenset({"pullback_in_uptrend"})))
     assert [r.ticker for r in result] == ["A", "C"]
 
 
@@ -86,16 +108,37 @@ def test_apply_filters_binary_flag_none_ignored():
     assert [r.ticker for r in result] == ["A", "B"]
 
 
+def test_apply_filters_wheel_only():
+    # spec 10: filtro wheel_only mostrando solo candidatos marcados.
+    rows = [
+        _row("A", wheel_candidate=True),
+        _row("B", wheel_candidate=False),
+        _row("C", wheel_candidate=True),
+    ]
+    result = apply_filters(rows, FilterState(wheel_only=True))
+    assert [r.ticker for r in result] == ["A", "C"]
+
+
+def test_apply_filters_legacy_run_excluded_by_regime_filter():
+    # Runs históricos: regime=None. Si el filtro regime está activo, quedan fuera.
+    rows = [
+        _row("A", regime="uptrend"),
+        _row("B", regime=None),
+    ]
+    result = apply_filters(rows, FilterState(regime=frozenset({"uptrend"})))
+    assert [r.ticker for r in result] == ["A"]
+
+
 def test_apply_filters_combines_multiple_criteria():
     rows = [
-        _row("A", tipo="T1", sector="Tech", score=15.0, earnings=True),
-        _row("B", tipo="T1", sector="Tech", score=15.0, earnings=False),
-        _row("C", tipo="T2", sector="Tech", score=15.0, earnings=True),
-        _row("D", tipo="T1", sector="Health", score=15.0, earnings=True),
-        _row("E", tipo="T1", sector="Tech", score=5.0, earnings=True),
+        _row("A", regime="uptrend", sector="Tech", score=15.0, earnings=True),
+        _row("B", regime="uptrend", sector="Tech", score=15.0, earnings=False),
+        _row("C", regime="downtrend", sector="Tech", score=15.0, earnings=True),
+        _row("D", regime="uptrend", sector="Health", score=15.0, earnings=True),
+        _row("E", regime="uptrend", sector="Tech", score=5.0, earnings=True),
     ]
     state = FilterState(
-        tier=frozenset({"T1"}),
+        regime=frozenset({"uptrend"}),
         sector=frozenset({"Tech"}),
         score_min=10.0,
         requires_earnings_in_45d=True,

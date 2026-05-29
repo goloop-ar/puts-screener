@@ -77,6 +77,14 @@ class ScreenedCandidate:
     # divergencia. No filtra; distinto de `momentum_score` (int del Paso 1).
     momentum_signals: tuple[str, ...] = ()
 
+    # --- Clasificación dual régimen + triggers (spec 10). Poblados post-Paso 2. ---
+    regime: str | None = None
+    triggers: tuple[str, ...] = ()
+    primary_trigger: str | None = None
+    composite_label: str = ""
+    wheel_candidate: bool = False
+    trigger_metadata_json: str = "{}"
+
     # Metadatos
     fetched_at: datetime = field(default_factory=datetime.now)
     errors: list[str] = field(default_factory=list)

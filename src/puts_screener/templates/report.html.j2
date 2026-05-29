@@ -40,11 +40,17 @@
       margin-left: auto; padding: 0.15rem 0.55rem; border-radius: 999px;
       font-size: 0.78rem; font-weight: 600; color: #ffffff;
     }
-    .type-t1 { background: #16a34a; }
-    .type-t2 { background: #ea580c; }
-    .type-t3 { background: #6b7280; }
-    .type-t4 { background: #2563eb; }
-    .type-t5 { background: #7c3aed; }
+    /* spec 10: color por régimen reemplaza color por tipo T */
+    .regime-uptrend { background: #16a34a; }   /* verde — alcista con soporte */
+    .regime-lateral { background: #6b7280; }   /* gris — rango */
+    .regime-downtrend { background: #ea580c; } /* rojo — bajista */
+    .regime-reversal { background: #ca8a04; }  /* amarillo — cambio de régimen */
+    .regime- { background: #4a5568; }          /* fallback (legacy / sin clasificar) */
+    .wheel-badge {
+      margin-left: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 4px;
+      font-size: 0.7rem; font-weight: 600;
+      background: #fef3c7; color: #92400e;
+    }
     .zone { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; margin: 0.75rem 0; }
     .metric { display: flex; flex-direction: column; }
     .metric .label {
@@ -197,9 +203,10 @@
   {% endif %}
   <main>
     {% for c in candidates %}
-    <article class="card {{ c.tipo_T_lower }}">
+    <article class="card regime-{{ c.regime }}">
       <header class="card-head">
         <strong class="ticker">{{ c.ticker }}</strong>
+        {% if c.wheel_candidate %}<span class="wheel-badge">🎡 Wheel</span>{% endif %}
         {% if c.universes %}
         <span class="universe-badges">
           {% for u in c.universes %}
@@ -209,7 +216,7 @@
         {% endif %}
         <span class="sector">{{ c.sector }}</span>
         <span class="exchange">{{ c.exchange }}</span>
-        <span class="badge type-{{ c.tipo_T_lower }}">{{ c.tipo_T }}</span>
+        <span class="badge regime-{{ c.regime }}">{{ c.composite_label or c.tipo_T }}</span>
       </header>
 
       <div class="tier">

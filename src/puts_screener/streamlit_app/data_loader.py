@@ -63,6 +63,24 @@ def _currency_from_country(country: str | None) -> str:
     return _COUNTRY_TO_CURRENCY.get(country or "", _DEFAULT_CURRENCY)
 
 
+def _col_or_none(row: sqlite3.Row, col: str) -> str | None:
+    """Lee columna del Row, devuelve None si no existe o es NULL (compat runs legacy)."""
+    try:
+        value = row[col]
+    except (IndexError, KeyError):
+        return None
+    return value if value else None
+
+
+def _col_or_default(row: sqlite3.Row, col: str, default):
+    """Lee columna del Row, devuelve default si no existe o es NULL (compat runs legacy)."""
+    try:
+        value = row[col]
+    except (IndexError, KeyError):
+        return default
+    return default if value is None else value
+
+
 def list_recent_runs(limit: int = 30, db_path: Path | None = None) -> list[RunSummary]:
     """Lista los últimos `limit` runs ordenados por `started_at` descendente."""
     conn = _open(db_path)
@@ -138,6 +156,11 @@ def load_run_candidates(run_id: str, db_path: Path | None = None) -> list[Candid
                 tiene_eventos_macro_en_45d=bool(r["eventos_macro_en_45d"]),
                 strike_natural=r["strike_natural"],
                 currency=_currency_from_country(r["country"]),
+                # spec 10 — clasificación dual (NULL en runs legacy → defaults).
+                regime=_col_or_none(r, "regime"),
+                primary_trigger=_col_or_none(r, "primary_trigger"),
+                composite_label=_col_or_default(r, "composite_label", ""),
+                wheel_candidate=bool(_col_or_default(r, "wheel_candidate", 0)),
             )
         )
     return results
@@ -221,6 +244,14 @@ def load_candidate_detail(
         best_zone_tier = None
         best_zone_distance_pct = None
 
+    # spec 10 — clasificación dual (compat con runs legacy: NULL → default).
+    regime_value = _col_or_none(r, "regime")
+    primary_trigger_value = _col_or_none(r, "primary_trigger")
+    composite_label_value = _col_or_default(r, "composite_label", "")
+    wheel_value = bool(_col_or_default(r, "wheel_candidate", 0))
+    triggers_json = _col_or_default(r, "triggers_json", "[]")
+    triggers_tuple = tuple(json.loads(triggers_json)) if triggers_json else ()
+
     row = CandidateRow(
         ticker=r["ticker"],
         tipo_T=r["tipo_T"] or "",
@@ -237,6 +268,10 @@ def load_candidate_detail(
         tiene_eventos_macro_en_45d=bool(r["eventos_macro_en_45d"]),
         strike_natural=r["strike_natural"],
         currency=currency,
+        regime=regime_value,
+        primary_trigger=primary_trigger_value,
+        composite_label=composite_label_value,
+        wheel_candidate=wheel_value,
     )
 
     eventos_macro = tuple(json.loads(r["eventos_macro_json"])) if r["eventos_macro_json"] else ()
@@ -266,4 +301,9 @@ def load_candidate_detail(
         },
         flags_legibles=flags,
         momentum_signals=momentum,
+        regime=regime_value,
+        primary_trigger=primary_trigger_value,
+        composite_label=composite_label_value,
+        wheel_candidate=wheel_value,
+        triggers=triggers_tuple,
     )

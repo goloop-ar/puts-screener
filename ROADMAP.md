@@ -309,6 +309,22 @@ Implementación en 4 tandas:
 - `load_best_zone` replica reconstrucción de SupportZone (sin tocar
   persistence.py) porque `load_support_zones` existente no preserva is_best.
 
+### Spec 10 — Clasificación dual régimen + triggers (Phase 3.5) ✅ Cerrada (2026-05-28)
+
+Reemplazo del sistema legacy T1-T5 por sistema dual: `regime` (uptrend/lateral/downtrend/reversal) + `triggers` (catálogo de 6 detectores primarios + bullish_divergence como modificador).
+
+- [x] **Tanda 1**: 3 detectores aislados (`double_bottom`, `capitulation_reclaim`, `hma_weekly_flip`) en `detectors.py` + `config_detectors.py`. 32 tests, suite 533 verdes.
+- [x] **Tanda 2**: clasificación dual completa en `classification_v2.py` + `config_classification_v2.py`. 4 evaluators nuevos (regime, pullback_in_uptrend, range_floor, post_earnings_dip, bullish_divergence). Integración al `final_pipeline` post-Paso 2. Migración DB con 6 columnas nuevas idempotentes. `classification.py` marcado deprecated; gate de clasificación removido de `apply_step1_filters`. `TypeClassification` mantenida como vehículo de backcompat para columna `tipo`. 36 tests, suite 569 verdes.
+- [x] **Tanda 3**: reportes actualizados — CSV reemplaza `tipo` por `composite_label` + agrega `regime`/`primary_trigger`/`triggers`/`wheel_candidate` (44→48 columnas); HTML reemplaza badges T1-T5 por color por régimen + badge `🎡 Wheel` opcional; Streamlit reemplaza filtro por tier (T1-T5) por filtros de régimen + primary_trigger + wheel_only; runs históricos pre-spec-10 muestran fallback `"{T} (legacy)"`. SOP v4 generado (decisión humana, fuera de este commit). SPEC.md + CLAUDE.md actualizados. 572 verdes (+3 tests nuevos por filtros).
+
+**Validación empírica (`--limit 200 sp500,nasdaq100`):**
+- 200 universe → 67 Paso 1 → 9 Paso 2 → **9 con primary_trigger** (todos clasificaron). Wall-time ~7s con cache caliente.
+- Distribución de `primary_trigger` (3 distintos): `pullback_in_uptrend`×7 (uptrend), `double_bottom_unconfirmed`×1 (downtrend, BIIB), `double_bottom_unconfirmed`×1 (reversal, DXCM).
+- 2 candidatos con modificador `bullish_divergence` en composite label (CAH y CNP, ambos uptrend).
+- Confirma diseño: en mercado alcista 2026 la mayoría sigue siendo pullback_in_uptrend, pero el sistema dual captura situaciones distintas (downtrend + W; reversal por HMA flip) que el sistema T1-T5 colapsaba todo a T1.
+
+Commit `<HASH>`. <N_FINAL> tests verdes.
+
 ### Estadísticas
 
 - **Tests**: 501 verdes
@@ -332,7 +348,11 @@ Próximo bloque: Fase 5 MVP terminada (spec 09). Próximo bloque a definir post-
 
 ### 3.1 Inmediato (próxima sesión)
 
-Fase 5 MVP terminada en esta sesión (spec 09). Próximo paso: **usar la app real durante 1-2 semanas** y dejar que emerjan los pain points concretos antes de elegir siguiente bloque. Candidatos identificados (sin priorización fija): (a) segunda iteración de Fase 5 con overlays adicionales (AVWAPs anclados, pivots, gaps, fibs); (b) panel de ejecución con thresholds editables desde la UI (Fase 5.5); (c) backtesting agendado para ~2026-06-28 cuando haya 4 semanas de runs automáticos en `screening_history.db`. Sub-tarea pendiente: arreglar bug del retry loop en `daily-screening.yml` (no hace `git rebase --abort` entre intentos cuando hay conflict de rebase en outputs/DB; ver §4).
+Spec 10 cerrada (clasificación dual + 3 detectores + reportes migrados). Próximo paso: **usar el sistema en producción 1-2 semanas y dejar que emerjan ajustes empíricos**. Candidatos para la siguiente sesión (sin priorización fija):
+- (a) Spec 10.5: detectores que quedaron en backlog (`higher_low + trendline_break`; `bullish_divergence` como trigger primario si validación empírica lo justifica).
+- (b) Recalibración de pesos en `TRIGGER_WEIGHTS` según distribución observada (especialmente `hma_weekly_flip` 0.5 → 0.7 si los flip-único terminan siendo trades buenos).
+- (c) Backtesting agendado para ~2026-06-28 cuando haya 4 semanas de runs automáticos en `screening_history.db`.
+- (d) Spec 09 Fase 5 segunda iteración (overlays adicionales, panel de ejecución) si el uso real lo demanda.
 
 ### 3.2 Fase 3 — Producción
 
@@ -456,6 +476,10 @@ Ideas anotadas en el camino pero no priorizadas:
 - **Caso ACGL 2026-05-27 (post-spec-07 referencia)**: ACGL salió como T1 con zona compacta $93.35–$95.32 y score 6 en el run del 2026-05-26; al día siguiente cayó -4.16% intra-día rompiendo el conservative. La zona estaba correctamente identificada (confirmada por chart), score 6 era tier medio (no "invulnerable"), y los flags macro (FOMC 26d + CPI 19d) estaban presentes. El screener funcionó como diseñado — el stop estructural del SOP (cierre debajo del conservative → revisar tesis) es la respuesta correcta a este tipo de evento idiosincrático. Útil conservar como caso histórico para evaluar narrativa de spec 07 y, más adelante, para análisis sistemático sobre `screening_history.db` (cuántas zonas detectadas rompieron vs aguantaron, qué patrón discriminador adicional podría existir).
 - **GitHub Actions / Node 24 deprecation (deadline 2026-06-02)**: el run `26589402903` emitió annotation informativa: `actions/cache@v4`, `actions/checkout@v4`, `actions/deploy-pages@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4` corren sobre Node 20, GitHub fuerza Node 24 por default el 2026-06-02. Verificar antes de esa fecha que las versiones pinneadas soporten Node 24 (típicamente bumpeo de major: `cache@v5`, `checkout@v5`, etc.). Item chico de mantenimiento de infra.
 - **Bumpear actions transitivamente al próximo deadline de Node**: el 2026-06-02 forzó Node 24; las siguientes versiones (Node 26+) tendrán próximos deadlines. Anotar para revisar a partir de 2027 — los actions oficiales suelen migrar con 1-2 meses de anticipación.
+- **Detectores spec 10.5**: `higher_low + trendline_break` y `bullish_divergence` como trigger primario. Quedaron fuera de spec 10 por costo (trendlines) y por ruido (divergence aislada). Reabrir si validación empírica de spec 10 muestra que el espacio de oportunidades no-T1 sigue subcubierto.
+- **Recalibración de `TRIGGER_WEIGHTS`**: pesos provisionales fijados en spec 10. Validar contra 1-2 meses de runs y ajustar (especialmente `hma_weekly_flip` 0.5 → 0.7 si los flip-único terminan siendo trades buenos).
+- **`TypeClassification` deprecation completa**: spec 10 la mantuvo como vehículo de backcompat para `tipo`. En iteración futura cuando alguna spec toque `persistence.py` o `reports_html.py` por otra razón, eliminar el campo y la clase.
+- **`classify_tipo` de `classification.py` queda deprecated pero no eliminado**: spec 10 lo dejó porque algunos tests legacy lo usan. Eliminar cuando se haga un sweep de tests obsoletos.
 
 ---
 
@@ -534,6 +558,12 @@ Para no buscarlas en specs:
 - **2026-05-28 — Schedule run automático validó 11 UTC cron + Node 24 bump**: run `26598622082` disparó por schedule a las 19:54 UTC en lugar de 11:00 UTC. GitHub Actions agenda con flexibilidad de horario (especialmente top-of-hour); el cron sigue siendo `0 11 * * 1-5` pero el job puede arrancar minutos u horas después según carga. No es bug. El run validó end-to-end las 5 actions bumpeadas (checkout@v5, setup-python@v6, cache@v5, upload-pages-artifact@v5, deploy-pages@v5).
 - **2026-05-28 — Dispatch fallido en step #8 'Commit outputs and DB' (no bug de Node 24)**: el dispatch `26598720024` esperó 22 min en cola por concurrency, corrió el pipeline OK, pero falló al pushear outputs por race condition con commits que se hicieron en main mientras esperaba. El bug real es del retry loop del workflow YAML (ver §4). Node 24 validado por el schedule del mismo día, no por este dispatch. Anotado como caso histórico — relanzar el dispatch ahora contra HEAD actual `657412d` debería pasar (los commits que generaron el conflict ya están integrados).
 - **2026-05-28 — Conflict binario en bots paralelos: aceptar pérdida del perdedor, no auto-resolver**: cuando dos runs del workflow compiten por pushear (dispatch paralelo o cron + dispatch simultáneos), el segundo en pushear topa con conflict irreconciliable en `data/screening_history.db` (acumulativa) y `output/screening_latest.*`. Auto-resolver con `-X theirs` pisaría el commit del ganador y, en la DB, perdería el run_id del run ganador — peor que perder el del perdedor. En producción real el caso es raro (concurrency serializa los crones); cuando pase, el log tiene info para diagnosticar y la acción humana es re-dispatchear el run perdedor. Descartadas: `-X theirs` (rompería DB), lógica de merge a nivel app (complejidad alta para frecuencia baja), regenerar outputs en el reintento (no resuelve el conflict en la DB).
+- **2026-05-28 — Spec 10, sistema dual régimen + triggers reemplaza T1-T5**: el sistema legacy mezclaba régimen del ticker (uptrend/lateral/etc), trigger técnico (capitulation, post-earnings) e intención humana (wheel) en una sola dimensión, causando sesgo 100% T1 en mercado alcista (T1 ganaba prioridad sobre todo). Sistema nuevo separa los ejes: `regime` por estado del ticker, `triggers` por detector activo. Permite que tickers en downtrend con doble piso o capitulation reclaim lleguen al output sin diluir el scoring de zona. Wheel sale del clasificador automático y pasa a la watchlist (`TICKER:wheel`).
+- **2026-05-28 — Spec 10, clasificación corre POST Paso 2, no antes**: el trigger `pullback_in_uptrend` depende de `best_zone.score` y `best_zone.distance_pct`, que solo existen tras el Paso 2. Conceptualmente sigue siendo "Paso 0" en el SOP v4; en código corre después. El gate viejo "tipo None → descartar" se elimina de `apply_step1_filters`; ahora todos los Paso-1-passers entran a Paso 2.
+- **2026-05-28 — Spec 10, `TypeClassification` como vehículo de backcompat para `tipo`**: en lugar de eliminar el campo, el orquestador `_classify_supported` setea `screened.classification = TypeClassification(tipo=result.legacy_tipo, justificacion=label, ...)`. Persistence y consumidores SQL externos no notan el cambio. CSV/HTML/Streamlit sí migran a `composite_label` directamente.
+- **2026-05-28 — Spec 10, color en HTML cards por régimen (no por trigger)**: uptrend=verde, lateral=gris, downtrend=rojo, reversal=amarillo. Por trigger habría 7 colores (incluyendo modificadores) y se vuelve ilegible; por régimen son 4 y cuentan la historia macro relevante.
+- **2026-05-28 — Spec 10, peso 0.5 a `hma_weekly_flip` (igual que `double_bottom_unconfirmed`)**: el HMA flip aislado es disparador débil y se vuelve útil principalmente cuando coexiste con otro trigger. Si validación empírica futura muestra que tickers con HMA flip único son oportunidades buenas, considerar subir a 0.7. Bajo por defecto para conservar selectividad.
+- **2026-05-28 — Spec 10, `bullish_divergence` como modificador (weight=0.0), nunca primario**: ya existía como `momentum_signals` informativo (Etapa 4). En spec 10 se eleva a participante del label compuesto, pero no compite por primary — empíricamente es muy ruidoso aislado.
 
 ---
 

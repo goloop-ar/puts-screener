@@ -49,14 +49,21 @@ def _wire_pipeline(monkeypatch, supported, *, persist_run_id="rid", boom_ticker=
 
 
 def test_pipeline_runs_three_steps_in_order(monkeypatch, final_candidate_factory):
+    # Spec 10: solo los SupportedCandidate con primary_trigger pasan al Paso 3. Con la
+    # fixture _tiny_ohlcv (1 bar) + sma_50w > sma_200w, los pasa_paso_2=True con
+    # best_zone.score >= SCORE_MIN_VALID disparan pullback_in_uptrend → entran al Paso 3.
     supported = [
-        final_candidate_factory(ticker="AAA", tipo="T1", score=5, passes=True).supported,
-        final_candidate_factory(ticker="BBB", tipo="T2", score=4, passes=True).supported,
-        final_candidate_factory(ticker="CCC", passes=False).supported,
+        final_candidate_factory(ticker="AAA", tipo="T1", score=10, passes=True).supported,
+        final_candidate_factory(ticker="BBB", tipo="T1", score=8, passes=True).supported,
+        final_candidate_factory(ticker="CCC", passes=False).supported,  # no pasa_paso_2 → no Paso 3
     ]
-    saved = []
+    saved_binary = []
+    saved_class = []
     monkeypatch.setattr(
-        final_pipeline, "save_binary_events", lambda rid, fcs: saved.append((rid, len(fcs)))
+        final_pipeline, "save_binary_events", lambda rid, fcs: saved_binary.append((rid, len(fcs)))
+    )
+    monkeypatch.setattr(
+        final_pipeline, "save_classification", lambda rid, cs: saved_class.append((rid, len(cs)))
     )
     calls = _wire_pipeline(monkeypatch, supported)
 
@@ -65,20 +72,25 @@ def test_pipeline_runs_three_steps_in_order(monkeypatch, final_candidate_factory
     )
 
     assert run_id == "rid"
-    assert len(finals) == 3
+    # AAA y BBB pasan al Paso 3; CCC queda fuera (pasa_paso_2=False).
+    assert len(finals) == 2
     assert calls.index("screening") < calls.index("support")
     first_check = min(i for i, c in enumerate(calls) if c.startswith("check:"))
     assert calls.index("support") < first_check
-    assert {c for c in calls if c.startswith("check:")} == {"check:AAA", "check:BBB", "check:CCC"}
-    assert saved == [("rid", 3)]
+    assert {c for c in calls if c.startswith("check:")} == {"check:AAA", "check:BBB"}
+    assert saved_binary == [("rid", 2)]
+    # save_classification se invoca con los 2 supported con pasa_paso_2=True.
+    assert saved_class == [("rid", 2)]
 
 
 def test_pipeline_isolates_step3_failure(monkeypatch, final_candidate_factory):
+    # score=5 (default) → cumple SCORE_MIN_VALID=5 → pullback fires → ambos pasan al Paso 3.
     supported = [
         final_candidate_factory(ticker="OK", passes=True).supported,
         final_candidate_factory(ticker="BOOM", passes=True).supported,
     ]
     monkeypatch.setattr(final_pipeline, "save_binary_events", lambda rid, fcs: None)
+    monkeypatch.setattr(final_pipeline, "save_classification", lambda rid, cs: None)
     _wire_pipeline(monkeypatch, supported, boom_ticker="BOOM")
 
     _, finals = final_pipeline.run_final_pipeline(
@@ -99,6 +111,7 @@ def test_generate_reports_false_skips_writers(monkeypatch, final_candidate_facto
     monkeypatch.setattr(final_pipeline, "write_csv_report", lambda *a, **k: csv_calls.append(1))
     monkeypatch.setattr(final_pipeline, "write_html_report", lambda *a, **k: html_calls.append(1))
     monkeypatch.setattr(final_pipeline, "save_binary_events", lambda rid, fcs: None)
+    monkeypatch.setattr(final_pipeline, "save_classification", lambda rid, cs: None)
 
     final_pipeline.run_final_pipeline(
         ["AAA"], data_service=None, persist=False, generate_reports=False

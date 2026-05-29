@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pandas as pd
 
-from puts_screener.classification import classify
 from puts_screener.config_filters import (
     MACD_LOOKBACK_DAYS,
     MACD_NEUTRAL_PCT_CHANGE,
@@ -213,7 +212,7 @@ def _process_ticker(ticker: str, data_service: DataService) -> ScreenedCandidate
         candidate = _build_candidate(ticker, raw)
         if candidate is None:
             return None
-        candidate.classification = classify(candidate)
+        # Spec 10: classification (régimen + triggers) corre post-Paso 2 en final_pipeline.
         apply_step1_filters(candidate)
         candidate.momentum_score = compute_momentum_score(candidate)
         return candidate
@@ -278,7 +277,6 @@ def run_screening(
 
     duration = (datetime.now() - started_at).total_seconds()
     passed = sum(1 for c in candidates if c.pasa_filtros_paso_1)
-    classified = sum(1 for c in candidates if c.classification and c.classification.tipo)
     high_momentum = sum(1 for c in candidates if c.momentum_score >= 2)
 
     logger.info("=" * 60)
@@ -286,7 +284,6 @@ def run_screening(
     logger.info("  Universe size: %d", len(universe))
     logger.info("  Processed successfully: %d", len(candidates))
     logger.info("  Failed (critical data missing): %d", failed_count)
-    logger.info("  Classified (T1-T4): %d", classified)
     logger.info("  Passed all filters: %d", passed)
     logger.info("  With momentum_score >= 2: %d", high_momentum)
 

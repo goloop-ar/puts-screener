@@ -39,6 +39,10 @@ def _format_candidate(fc: FinalCandidate) -> dict:
     classification = screened.classification
     analyst = screened.analyst
     tipo = (classification.tipo if classification else "") or ""
+    # spec 10: clasificación dual — composite_label reemplaza el badge T1-T5,
+    # regime define el color de la card.
+    composite_label = screened.composite_label or ""
+    regime = screened.regime or ""
     currency = screened.profile.currency or "USD"  # None → fallback USD (defensivo)
 
     # Elementos ordenados por peso desc (ELEMENT_WEIGHTS); el template muestra los primeros 8.
@@ -78,6 +82,12 @@ def _format_candidate(fc: FinalCandidate) -> dict:
         "exchange": screened.profile.exchange or "",
         "tipo_T": tipo,
         "tipo_T_lower": tipo.lower(),
+        # spec 10: clasificación dual
+        "composite_label": composite_label,
+        "regime": regime,
+        "primary_trigger": screened.primary_trigger or "",
+        "triggers": list(screened.triggers),
+        "wheel_candidate": bool(screened.wheel_candidate),
         "currency": currency,
         "spot": round(screened.spot, 2),
         "spot_formatted": format_price(screened.spot, currency),

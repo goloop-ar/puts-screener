@@ -192,6 +192,12 @@ _CANDIDATE_MIGRATION_COLUMNS: dict[str, str] = {
     "strike_natural": "REAL",
     "strike_conservative": "REAL",
     "strike_grid_unit": "REAL",
+    "regime": "TEXT",  # spec 10 — clasificación dual: uptrend|lateral|downtrend|reversal
+    "triggers_json": "TEXT DEFAULT '[]'",  # lista de triggers ordenada por peso desc
+    "primary_trigger": "TEXT",  # nombre del trigger con mayor peso (o NULL si ninguno)
+    "composite_label": "TEXT DEFAULT ''",  # "Régimen: Trigger primario [+ divergencia]"
+    "wheel_candidate": "INTEGER DEFAULT 0",  # reservado para iteraciones futuras
+    "trigger_metadata_json": "TEXT DEFAULT '{}'",  # metadata por trigger (serializada)
 }
 
 # Columnas agregadas a `runs` por specs posteriores. Misma migración idempotente que candidates.
@@ -486,6 +492,39 @@ def _macro_events_to_json(report) -> str:
             for e in report.eventos_macro
         ]
     )
+
+
+def save_classification(
+    run_id: str,
+    candidates: list[ScreenedCandidate],
+    db_path: Path | None = None,
+) -> None:
+    """Actualiza las columnas de clasificación dual (spec 10) en `candidates`.
+
+    Llamada después del Paso 2 y antes del Paso 3 desde final_pipeline. Solo escribe
+    los candidatos que pasaron Paso 2 (los demás quedan con regime=NULL, etc).
+    Idempotente: re-ejecutar con el mismo run_id sobrescribe los valores.
+    """
+    with _connect(db_path) as conn:
+        for c in candidates:
+            conn.execute(
+                "UPDATE candidates SET "
+                "tipo_T = ?, regime = ?, triggers_json = ?, primary_trigger = ?, "
+                "composite_label = ?, wheel_candidate = ?, trigger_metadata_json = ? "
+                "WHERE run_id = ? AND ticker = ?",
+                (
+                    c.classification.tipo if c.classification else None,
+                    c.regime,
+                    json.dumps(list(c.triggers)),
+                    c.primary_trigger,
+                    c.composite_label,
+                    1 if c.wheel_candidate else 0,
+                    c.trigger_metadata_json,
+                    run_id,
+                    c.ticker,
+                ),
+            )
+    logger.info("Saved classification for run %s: %d candidates", run_id, len(candidates))
 
 
 def save_binary_events(

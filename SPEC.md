@@ -10,7 +10,7 @@ Identificar diariamente acciones de mercados US y Europa que cumplan los criteri
 
 ### Incluido (fase actual)
 
-- Paso 0: Clasificación de situación de entrada (T1–T5)
+- Paso 0: Clasificación dual — `regime` (uptrend/lateral/downtrend/reversal) + `triggers` (catálogo de detectores). Definido en SOP v4 §0. Reemplaza el sistema legacy T1–T5 de v3.
 - Paso 1: Screening (Calidad, Liquidez del subyacente, Tendencia macro, Valoración, Momento técnico)
 - Paso 2: Identificación de soportes y scoring de confluencia
 - Paso 3: Check de eventos binarios completo
@@ -59,7 +59,7 @@ Por cada corrida diaria:
 Una fila por candidato que pasa todos los filtros. Columnas mínimas:
 
 - `ticker`, `exchange`, `sector`, `market_cap`
-- `tipo_T` (T1–T5), `justificacion_tipo`
+- `composite_label` (ej. "Uptrend: Pullback en tendencia"), `regime`, `primary_trigger`, `triggers`, `wheel_candidate`. Reemplaza `tipo_T` (T1-T5) del esquema v3; columna `tipo_T` se mantiene en SQLite para backcompat.
 - `precio_spot`, `zona_soporte_min`, `zona_soporte_max`, `distancia_a_soporte_pct`
 - `score_soporte`, `elementos_score` (lista textual de qué sumó)
 - `rsi_diario`, `rsi_semanal`, `macd_estado`
@@ -73,9 +73,9 @@ Una fila por candidato que pasa todos los filtros. Columnas mínimas:
 
 ### 4.2 HTML report (`output/screening_YYYY-MM-DD_HHMM.html`)
 
-Cards rankeadas por prioridad de tipo (T1 > T2 > T4 > T3 > T5), luego score de soporte desc y distancia asc. Sin tope de cantidad (todos los que pasan Paso 2). Para cada candidato:
+Cards rankeadas por prioridad legacy de tipo (T1 > T2 > T4 > T3 > T5, derivada del mapper de SOP v4 §0.D), luego score de soporte desc y distancia asc. Sin tope de cantidad (todos los que pasan Paso 2). Para cada candidato:
 
-- Card con ticker, sector, tipo T, tier de confluencia (estrellas + label) con score crudo debajo, precio spot formateado por divisa, distancia a soporte. Eventos macro globales (FOMC, CPI) en banner único arriba de la grilla; eventos ticker-específicos (earnings, ex-div) flageados per-card.
+- Card con ticker, sector, `composite_label` ("Régimen: Trigger primario [+ divergencia]"), tier de confluencia (estrellas + label) con score crudo debajo, precio spot formateado por divisa, distancia a soporte. Color de card por régimen (uptrend=verde / lateral=gris / downtrend=rojo / reversal=amarillo). Badge `🎡 Wheel` si `wheel_candidate=True`. Eventos macro globales (FOMC, CPI) en banner único arriba de la grilla; eventos ticker-específicos (earnings, ex-div) flageados per-card.
 - Justificación textual de por qué califica
 - Idealmente: mini-chart de precio diario últimos 6 meses con zona de soporte sombreada (puede ir a Fase 2)
 
@@ -105,13 +105,13 @@ GitHub Actions cron (22:00 UTC L-V)
    4. Cálculo técnico          → SMA, RSI, MACD, ATR, fibs, pivots
             │
             ▼
-   5. Clasificación T1-T5
+   5. Detección de soportes + scoring de confluencia
             │
             ▼
-   6. Detección de soportes + scoring de confluencia
+   6. Clasificación dual       → regime + triggers (SOP v4 §0). Corre POST Paso 2 (depende de best_zone).
             │
             ▼
-   7. Filtro final             → distancia ≤ 10% + score ≥ 5.0 + gate estructural ≥2 heavies
+   7. Filtro final             → distancia ≤ 10% + score ≥ 5.0 + gate estructural ≥2 heavies + primary_trigger ≠ None
             │
             ▼
    8. Reportes + persistencia
@@ -127,7 +127,7 @@ GitHub Actions cron (22:00 UTC L-V)
 - Filtros del Paso 1
 - Cálculo de indicadores técnicos
 - Detección de soportes y scoring de confluencia
-- Clasificación T1–T5
+- Clasificación dual (régimen + triggers, SOP v4)
 - Output CSV + HTML básico + SQLite
 - Correr localmente con `python -m puts_screener.run`
 
@@ -156,7 +156,10 @@ GitHub Actions cron (22:00 UTC L-V)
 | Término | Definición |
 | --- | --- |
 | DTE | Days To Expiration |
-| T1–T5 | Tipos de situación de entrada del Paso 0 del SOP |
+| Régimen | Estado del ticker en el horizonte 30-45 DTE: `uptrend`, `lateral`, `downtrend`, `reversal`. SOP v4 §0.A. |
+| Trigger | Detector técnico que dispara una situación de entrada: `pullback_in_uptrend`, `double_bottom_confirmed/unconfirmed`, `capitulation_reclaim`, `hma_weekly_flip`, `range_floor`, `post_earnings_dip` + `bullish_divergence` (modificador). SOP v4 §0.C. |
+| `composite_label` | Etiqueta human-readable del clasificador dual: "Régimen: Trigger primario [+ divergencia]". |
+| T1–T5 (legacy) | Sistema de clasificación de v3 del SOP. Mantiene columna `tipo_T` en SQLite por backcompat; mapeo `primary_trigger → tipo_T` en `PRIMARY_TRIGGER_TO_LEGACY_TIPO`. |
 | Score de soporte | Score ponderado: suma del peso máximo por categoría de elemento (SMA200, polaridad, AVWAP, etc.) multiplicado por un factor de densidad [0.85, 1.5] que premia confluencias compactas. Mín. 5.0 + ≥2 elementos heavy (peso ≥2.5) para validar. Tier 1-5 derivado del score final para display (⭐ a ⭐⭐⭐⭐⭐). |
 | HVN | High Volume Node — zona de alta densidad en Volume Profile |
 | AVWAP | Anchored VWAP — VWAP desde un punto ancla en el tiempo |

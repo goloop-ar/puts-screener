@@ -71,24 +71,47 @@ def _tri_state(label: str) -> bool | None:
     return {"Indistinto": None, "Sí": True, "No": False}[choice]
 
 
+_REGIME_OPTIONS = ("uptrend", "lateral", "downtrend", "reversal")
+_PRIMARY_TRIGGER_OPTIONS = (
+    "pullback_in_uptrend",
+    "double_bottom_confirmed",
+    "double_bottom_unconfirmed",
+    "capitulation_reclaim",
+    "hma_weekly_flip",
+    "range_floor",
+    "post_earnings_dip",
+)
+
+
 def render_sidebar_filters(rows: list[CandidateRow]) -> FilterState:
-    """Sidebar: filtros derivados de los rows del run actual. Devuelve FilterState."""
+    """Sidebar: filtros derivados de los rows del run actual. Devuelve FilterState.
+
+    spec 10: el filtro por tier (T1-T5) fue reemplazado por régimen + primary_trigger.
+    Runs históricos (pre-spec-10) tienen regime/primary_trigger=None; filtrarlos por
+    estos campos los excluye, lo cual es el comportamiento esperado.
+    """
     st.sidebar.divider()
     st.sidebar.subheader("Filtros")
-    tier = st.sidebar.multiselect("Tier", options=["T1", "T2", "T3", "T4", "T5"])
+    regime = st.sidebar.multiselect("Régimen", options=list(_REGIME_OPTIONS))
+    primary_trigger = st.sidebar.multiselect(
+        "Trigger primario", options=list(_PRIMARY_TRIGGER_OPTIONS)
+    )
     sectors_available = sorted({r.sector for r in rows if r.sector})
     sector = st.sidebar.multiselect("Sector", options=sectors_available)
     score_min = st.sidebar.slider("Score mínimo", 0.0, 25.0, 0.0, step=0.5)
+    wheel_only = st.sidebar.checkbox("Solo wheel candidates", value=False)
     requires_earnings = _tri_state("Earnings en 45d")
     requires_ex_div = _tri_state("Ex-div en 45d")
     requires_macro = _tri_state("Evento macro en 45d")
     return FilterState(
-        tier=frozenset(tier),
+        regime=frozenset(regime),
+        primary_trigger=frozenset(primary_trigger),
         sector=frozenset(sector),
         score_min=score_min,
         requires_earnings_in_45d=requires_earnings,
         requires_ex_div_in_45d=requires_ex_div,
         requires_macro_in_45d=requires_macro,
+        wheel_only=wheel_only,
     )
 
 
@@ -143,7 +166,12 @@ def render_candidates_table(rows: list[CandidateRow]) -> str | None:
         [
             {
                 "Ticker": r.ticker,
-                "Tipo": r.tipo_T,
+                # spec 10: composite_label reemplaza tipo_T. Fallback a "{T} (legacy)"
+                # para runs históricos sin clasificación dual.
+                "Clasificación": (
+                    r.composite_label or (f"{r.tipo_T} (legacy)" if r.tipo_T else "—")
+                ),
+                "Wheel": "🎡" if r.wheel_candidate else "",
                 "Spot": format_price(r.spot, r.currency),
                 "Sector": r.sector,
                 "Score": _fmt_score(r.best_zone_score),
@@ -195,7 +223,14 @@ def render_candidate_detail(detail: CandidateDetail) -> None:
     Paso 1 / Paso 2 / Paso 3 + strikes.
     """
     row = detail.row
-    st.header(f"{row.ticker} — {row.tipo_T}")
+    # spec 10: composite_label en lugar del tipo legacy. Fallback para runs históricos.
+    header_label = (
+        detail.composite_label
+        or row.composite_label
+        or (f"{row.tipo_T} (legacy)" if row.tipo_T else "")
+    )
+    wheel_suffix = " 🎡" if detail.wheel_candidate else ""
+    st.header(f"{row.ticker} — {header_label}{wheel_suffix}")
 
     months = st.radio(
         "Periodo",

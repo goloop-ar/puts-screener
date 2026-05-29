@@ -281,9 +281,10 @@ def test_apply_step1_collects_all_failures(neutral_candidate):
     assert prefijos == ["quality_liquidity", "valuation", "momentum"]
 
 
-def test_apply_step1_fails_without_classification(neutral_candidate):
-    # Pasa los 4 filtros pero no clasifica → el gate final lo rechaza (spec 02 §1).
+def test_apply_step1_passes_without_classification(neutral_candidate):
+    # Spec 10: el gate de clasificación T1-T4 fue removido. Candidatos sin classification
+    # ahora PASAN el Paso 1; la clasificación nueva (régimen + triggers) corre post-Paso 2.
     neutral_candidate.classification = None
     result = apply_step1_filters(neutral_candidate)
-    assert result.pasa_filtros_paso_1 is False
-    assert "sin clasificación T1–T4" in result.motivos_rechazo
+    assert result.pasa_filtros_paso_1 is True
+    assert all("clasificación" not in m for m in result.motivos_rechazo)

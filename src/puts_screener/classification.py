@@ -1,13 +1,14 @@
-"""Clasificación T1–T4 según el Paso 0 del SOP.
+"""Clasificación T1–T4 — DEPRECATED (spec 10).
+
+Reemplazado por `classification_v2.classify_candidate` (régimen + triggers, corre
+post-Paso 2 en final_pipeline). Este módulo se mantiene para no romper tests
+legacy de `test_classification.py`; el pipeline productivo ya no lo invoca.
+
+Original docstring abajo:
 
 La función pública `classify(candidate)` recibe un ScreenedCandidate ya
 populado con OHLCV, earnings_history e indicadores computados, y devuelve
 un TypeClassification con el tipo asignado (o None) + justificación.
-
-Decisión de firma: la spec 02 §6.1 define
-`classify(ticker, ohlcv_daily, ohlcv_weekly, earnings_history, indicators)`, pero
-como el ScreenedCandidate ya tiene todos esos campos adentro, usamos la firma
-natural `classify(candidate)` — mismo patrón que los filtros del Paso 1 §7.1.
 
 Prioridad de tipos cuando hay match múltiple: T1 > T2 > T4 > T3.
 """

@@ -71,7 +71,8 @@ def test_pipeline_processes_single_ticker(ohlcv_daily_long):
     assert run_id is None
     assert len(candidates) == 1
     c = candidates[0]
-    assert c.classification is not None
+    # Spec 10: classification ya NO se setea acá; corre post-Paso 2 en final_pipeline.
+    assert c.classification is None
     assert isinstance(c.pasa_filtros_paso_1, bool)
     assert 0 <= c.momentum_score <= 3
 

@@ -312,7 +312,7 @@ Implementación en 4 tandas:
 ### Estadísticas
 
 - **Tests**: 501 verdes
-- **Commits**: 129
+- **Commits**: 135
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 

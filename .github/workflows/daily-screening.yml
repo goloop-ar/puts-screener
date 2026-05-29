@@ -2,7 +2,7 @@ name: Daily screening
 
 on:
   schedule:
-    - cron: "0 11 * * 1-5"   # 11:00 UTC lun-vie (~8 ARG, pre-apertura US con cierre del día previo)
+    - cron: "7 6 * * 1-5"   # 06:07 UTC lun-vie (~3 ARG; minuto :07 evita top-of-hour congestion)
   workflow_dispatch:          # permite disparo manual desde la UI
 
 # Required for actions/deploy-pages

@@ -2,7 +2,7 @@
 
 > Documento vivo: estado actual, issues abiertos, próximos pasos. Actualizar al cierre de cada sesión.
 
-**Última actualización**: 2026-05-28
+**Última actualización**: 2026-05-29
 
 ---
 
@@ -564,6 +564,7 @@ Para no buscarlas en specs:
 - **2026-05-28 — Spec 10, color en HTML cards por régimen (no por trigger)**: uptrend=verde, lateral=gris, downtrend=rojo, reversal=amarillo. Por trigger habría 7 colores (incluyendo modificadores) y se vuelve ilegible; por régimen son 4 y cuentan la historia macro relevante.
 - **2026-05-28 — Spec 10, peso 0.5 a `hma_weekly_flip` (igual que `double_bottom_unconfirmed`)**: el HMA flip aislado es disparador débil y se vuelve útil principalmente cuando coexiste con otro trigger. Si validación empírica futura muestra que tickers con HMA flip único son oportunidades buenas, considerar subir a 0.7. Bajo por defecto para conservar selectividad.
 - **2026-05-28 — Spec 10, `bullish_divergence` como modificador (weight=0.0), nunca primario**: ya existía como `momentum_signals` informativo (Etapa 4). En spec 10 se eleva a participante del label compuesto, pero no compite por primary — empíricamente es muy ruidoso aislado.
+- **2026-05-29 — Cron movido de 11:00 UTC a 06:07 UTC** (`0 11 * * 1-5` → `7 6 * * 1-5`): el run automático del 2026-05-28 disparó a las 19:54 UTC en lugar de 11:00 UTC (delay de ~9h) y el del 2026-05-29 no había disparado a las 11:30 UTC. GitHub Actions tiene latencia significativa en top-of-hour, especialmente en horario business UTC con pool de runners saturado. Horario nuevo combina off-hours globales (Asia cerrada, Europa pre-business, US dormido) + minuto :07 no múltiplo de 5/15. Output disponible ~3:30 ARG, listo al despertar. yfinance EOD del día previo ya está consolidado mucho antes de las 06 UTC, sin riesgo de data incompleta. Reversión de la decisión del 2026-05-28 "Cron movido de 22 UTC a 11 UTC" — el horario pre-apertura US no compensa la falta de confiabilidad de scheduling.
 
 ---
 

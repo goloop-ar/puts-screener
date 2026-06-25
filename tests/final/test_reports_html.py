@@ -1,6 +1,6 @@
 """Tests del HTML report (spec 04 §8 + spec 06: banner macro, tier, currency)."""
 
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -153,7 +153,15 @@ def test_html_macro_banner_shown_once_not_per_card(tmp_path, final_candidate_fac
     """El banner macro aparece una sola vez (a nivel run), no en cada card."""
     macro = [MacroEvent(date=date(2026, 6, 1), kind="fomc", description="FOMC")]
     cands = [final_candidate_factory(ticker="AAA"), final_candidate_factory(ticker="BBB")]
-    path = write_html_report(cands, _META, output_dir=tmp_path, macro_events=macro)
+    # timestamp fijo anterior al evento: el banner filtra eventos pasados (e.date < today),
+    # así que sin pinnearlo el test se rompe al correrse después del 2026-06-01 (date-rot).
+    path = write_html_report(
+        cands,
+        _META,
+        output_dir=tmp_path,
+        macro_events=macro,
+        timestamp=datetime(2026, 5, 21, 16, 30),
+    )
     soup = _soup(path)
     assert len(soup.find_all("section", class_="macro-banner")) == 1
     # ninguna card tiene el evento macro en sus flags

@@ -2,7 +2,7 @@
 
 > Documento vivo: estado actual, issues abiertos, próximos pasos. Actualizar al cierre de cada sesión.
 
-**Última actualización**: 2026-05-29
+**Última actualización**: 2026-06-25
 
 ---
 
@@ -327,8 +327,8 @@ Commit `dbbdd51`. 572 tests verdes.
 
 ### Estadísticas
 
-- **Tests**: 572 verdes
-- **Commits**: 137
+- **Tests**: 581 verdes / 1 rojo (582 total) — el rojo es date-rot, no regresión funcional (ver §2)
+- **Commits**: 162
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -336,7 +336,13 @@ Commit `dbbdd51`. 572 tests verdes.
 
 ## 2. En vuelo (issues abiertos)
 
-**Sin issues abiertos.**
+**Issues abiertos (detectados 2026-06-25):**
+
+- **[infra] Copia local puede congelar la DB que consumen Streamlit/dev.** Hacer `git pull` al inicio de cada sesión. Detectado 2026-06-25: el local estaba behind 20 / ~27 días; la primera inspección corrió sobre DB stale (29/05) hasta sincronizar con ff-only.
+- **[clasificación] 3 de 6 detectores primarios = 0 detecciones en 20 días de prod junio** (`capitulation_reclaim`, `range_floor`, `post_earnings_dip`). Investigar causa (umbral / ausencia en el mercado / bug) ANTES de recalibrar `TRIGGER_WEIGHTS`.
+- **[clasificación] CHD (2026-06-02) llegó al output con `regime=lateral` y `primary_trigger=NULL`** ("Lateral: sin trigger"). Un lateral sin trigger en el output sugiere hueco en el gate post-Paso-2. Revisar.
+- **[infra] Cron `7 6 * * 1-5` sigue con delays de scheduling de 4–15h** (commits del bot entre 10:00–21:00 UTC en junio). No es bug funcional; el objetivo "output listo ~3:30 ARG" no se cumple. Aceptar o evaluar self-hosted runner si molesta.
+- **[tests] `test_html_macro_banner_shown_once_not_per_card` rojo por date-rot** (detectado 2026-06-25 tras sincronizar): el test fija un `MacroEvent` el 2026-06-01 y no pinnea `timestamp` en `write_html_report`, así que el banner toma `datetime.now()` (hoy 2026-06-25) como "today" y filtra el evento por pasado (`e.date < today` en `_format_macro_events_for_banner`) → 0 banners, el assert espera 1. No es regresión funcional ni de nuestra sesión (no tocamos código); es un test sensible al wall-clock que se rompe al correrlo después del 2026-06-01. Fix: pinnear `timestamp=` en la llamada o usar fecha de evento relativa a hoy. Suite 581/582 verde con este único rojo.
 
 **Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía `workflow_dispatch` manual del 2026-05-28 (run del 13:30 UTC) — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Un segundo dispatch ese mismo día a las 16:58 UTC (run `26589402903`) también validó visualmente el fix del 404 en `history.html` (ver §1 spec 05) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod.
 
@@ -440,6 +446,12 @@ Validación empírica N=200 post-Etapa 4 confirmó que el bug original (fibs de 
 Una vez que el cron acumule ~4 semanas de runs automáticos, arrancar diseño de spec de backtesting: responder empíricamente "¿este screener encuentra buenos trades?" analizando qué pasó con las zonas detectadas a 30/60 días. Casos como ACGL 2026-05-27 (zona correctamente identificada, rompió el conservative al día siguiente; anotado en §4) son la semilla. La spec puede diseñarse ahora si surge capacidad (no requiere data para escribirse, solo para correrse), pero no urge.
 
 Decisiones a tomar cuando arranque: qué métricas reportar (hit rate de zonas, drawdown desde detección, distribución de scores vs outcome), ventana de seguimiento (30/60/90 días), criterio de "aguantó vs rompió" (cierre debajo de lower_bound, o debajo de strike conservative). Si en ese punto se necesitan pivots históricos (no persistidos hoy por decisión de Fase 5), reabrir la decisión de persistencia.
+
+**Notas de metodología (derivadas del pase preliminar 2026-06-25, ver §5):**
+- Aguante de zona normalizado a horizonte fijo (10/20/30 días desde entry, o hasta vencimiento), no a ventana variable hasta "hoy".
+- Hit-rate desagregado por `primary_trigger` y por `regime`.
+- Control por movimiento del benchmark de mercado (no atribuir beta del mercado al screener).
+- P&L real a vencimiento (precio vs strike al expiry), disponible desde fin jun/jul.
 
 ---
 
@@ -566,6 +578,9 @@ Para no buscarlas en specs:
 - **2026-05-28 — Spec 10, `bullish_divergence` como modificador (weight=0.0), nunca primario**: ya existía como `momentum_signals` informativo (Etapa 4). En spec 10 se eleva a participante del label compuesto, pero no compite por primary — empíricamente es muy ruidoso aislado.
 - **2026-05-29 — Cron movido de 11:00 UTC a 06:07 UTC** (`0 11 * * 1-5` → `7 6 * * 1-5`): el run automático del 2026-05-28 disparó a las 19:54 UTC en lugar de 11:00 UTC (delay de ~9h) y el del 2026-05-29 no había disparado a las 11:30 UTC. GitHub Actions tiene latencia significativa en top-of-hour, especialmente en horario business UTC con pool de runners saturado. Horario nuevo combina off-hours globales (Asia cerrada, Europa pre-business, US dormido) + minuto :07 no múltiplo de 5/15. Output disponible ~3:30 ARG, listo al despertar. yfinance EOD del día previo ya está consolidado mucho antes de las 06 UTC, sin riesgo de data incompleta. Reversión de la decisión del 2026-05-28 "Cron movido de 22 UTC a 11 UTC" — el horario pre-apertura US no compensa la falta de confiabilidad de scheduling.
 - **2026-05-29 — Cache OHLCV: refetch incremental de últimas N=7 barras siempre** (`OHLCV_REFRESH_DAYS=7`): la política original spec 01 §8 (TTL=24h sobre el cache completo) no garantizaba que el cache contuviera la última barra disponible. Caso documentado del 2026-05-29: workflow_dispatch a las 11:30 UTC devolvió data hasta 2026-05-27 para US y 2026-05-26 para EU, porque el cron previo del 2026-05-28 19:54 UTC se llenó pre-cierre US. Fix: si cache existe, refetch siempre las últimas 7 barras de yfinance y merge sobre el cache. Si refetch falla, devolver cache stale con warning (modo degradado). 7 días cubre weekends + feriados + delay yfinance EU. Costo: 1 llamada chica adicional por ticker por run; aceptable contra el beneficio de data fresca garantizada. La política TTL=24h se mantiene para profile/financials/analyst/etc; solo OHLCV cambia. Validación empírica: 5 tickers (AAPL/MSFT/NVDA/GOOGL/AMZN) avanzaron de 05-26/27 a 05-28 (último cierre) en el 1er run (1.63s); 2do run con cache caliente: 0.34s (4.85× speed-up).
+- **2026-06-25 — Backtest preliminar junio 2026, aguante de zona**: 17 propuestas testeadas (entry→2026-06-25, veredicto `min(Low)` vs `strike_conservative`). 14/17 (82%) aguantaron. Por trigger: pullback 5/6, double_bottom 8/10, lateral 1/1. Mediana de move ~+1% (sin rally inflador). Rupturas idiosincráticas: ACN −34%, APP −17%, BR −11%. Conclusión: aguante ~80% a ~3 semanas, consistente entre triggers.
+- **2026-06-25 — Hipótesis "double_bottom en downtrend/reversal es el eslabón débil" REFUTADA**: surgió de n=3, ampliada a n=10: 80% aguante, indistinguible del 83% de pullback. Confirmed (3/4) no aguantó mejor que unconfirmed (5/6). NO se endurece el gate de `double_bottom`. Cambio de diseño evitado por ampliar la muestra antes de actuar.
+- **2026-06-25 — Caveats del pase preliminar**: un solo mes, ventana variable sin normalizar, métrica de aguante (no P&L a vencimiento). El backtest robusto sigue siendo §3.6.
 
 ---
 

@@ -327,8 +327,8 @@ Commit `dbbdd51`. 572 tests verdes.
 
 ### Estadísticas
 
-- **Tests**: 581 verdes / 1 rojo (582 total) — el rojo es date-rot, no regresión funcional (ver §2)
-- **Commits**: 162
+- **Tests**: 582 verdes
+- **Commits**: 164
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -342,7 +342,6 @@ Commit `dbbdd51`. 572 tests verdes.
 - **[clasificación] 3 de 6 detectores primarios = 0 detecciones en 20 días de prod junio** (`capitulation_reclaim`, `range_floor`, `post_earnings_dip`). Investigar causa (umbral / ausencia en el mercado / bug) ANTES de recalibrar `TRIGGER_WEIGHTS`.
 - **[clasificación] CHD (2026-06-02) llegó al output con `regime=lateral` y `primary_trigger=NULL`** ("Lateral: sin trigger"). Un lateral sin trigger en el output sugiere hueco en el gate post-Paso-2. Revisar.
 - **[infra] Cron `7 6 * * 1-5` sigue con delays de scheduling de 4–15h** (commits del bot entre 10:00–21:00 UTC en junio). No es bug funcional; el objetivo "output listo ~3:30 ARG" no se cumple. Aceptar o evaluar self-hosted runner si molesta.
-- **[tests] `test_html_macro_banner_shown_once_not_per_card` rojo por date-rot** (detectado 2026-06-25 tras sincronizar): el test fija un `MacroEvent` el 2026-06-01 y no pinnea `timestamp` en `write_html_report`, así que el banner toma `datetime.now()` (hoy 2026-06-25) como "today" y filtra el evento por pasado (`e.date < today` en `_format_macro_events_for_banner`) → 0 banners, el assert espera 1. No es regresión funcional ni de nuestra sesión (no tocamos código); es un test sensible al wall-clock que se rompe al correrlo después del 2026-06-01. Fix: pinnear `timestamp=` en la llamada o usar fecha de evento relativa a hoy. Suite 581/582 verde con este único rojo.
 
 **Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía `workflow_dispatch` manual del 2026-05-28 (run del 13:30 UTC) — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Un segundo dispatch ese mismo día a las 16:58 UTC (run `26589402903`) también validó visualmente el fix del 404 en `history.html` (ver §1 spec 05) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod.
 
@@ -581,6 +580,7 @@ Para no buscarlas en specs:
 - **2026-06-25 — Backtest preliminar junio 2026, aguante de zona**: 17 propuestas testeadas (entry→2026-06-25, veredicto `min(Low)` vs `strike_conservative`). 14/17 (82%) aguantaron. Por trigger: pullback 5/6, double_bottom 8/10, lateral 1/1. Mediana de move ~+1% (sin rally inflador). Rupturas idiosincráticas: ACN −34%, APP −17%, BR −11%. Conclusión: aguante ~80% a ~3 semanas, consistente entre triggers.
 - **2026-06-25 — Hipótesis "double_bottom en downtrend/reversal es el eslabón débil" REFUTADA**: surgió de n=3, ampliada a n=10: 80% aguante, indistinguible del 83% de pullback. Confirmed (3/4) no aguantó mejor que unconfirmed (5/6). NO se endurece el gate de `double_bottom`. Cambio de diseño evitado por ampliar la muestra antes de actuar.
 - **2026-06-25 — Caveats del pase preliminar**: un solo mes, ventana variable sin normalizar, métrica de aguante (no P&L a vencimiento). El backtest robusto sigue siendo §3.6.
+- **2026-06-25 — Test date-rot `test_html_macro_banner_shown_once_not_per_card` resuelto** (commit `f198b30`): el test fijaba un `MacroEvent` el 2026-06-01 sin pinnear `timestamp` en `write_html_report`, así que el banner usaba `datetime.now()` como "today" y filtraba el evento por pasado (`e.date < today`) → fallaba al correrlo después del 2026-06-01. Fix: pasar `timestamp=datetime(2026, 5, 21, 16, 30)` explícito en la llamada del test (fecha anterior al evento, consistente con el footer), volviéndolo determinista e independiente del reloj real. Suite 582 verde.
 
 ---
 

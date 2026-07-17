@@ -26,7 +26,7 @@ from puts_screener.providers.tickers import SUPPORTED_EU_SUFFIXES
 logger = logging.getLogger(__name__)
 
 _SP500_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-_NASDAQ100_URL = "https://en.wikipedia.org/wiki/Nasdaq-100"
+_NASDAQ100_URL = "https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies"
 _STOXX600_URL = "https://en.wikipedia.org/wiki/STOXX_Europe_600"
 _SOURCE_URLS = {"sp500": _SP500_URL, "nasdaq100": _NASDAQ100_URL, "stoxx600": _STOXX600_URL}
 
@@ -187,11 +187,14 @@ def _fetch_sp500() -> list[str]:
 
 
 def _fetch_nasdaq100() -> list[str]:
-    """Nasdaq-100: tabla 'Components' (columna 'Ticker'/'Symbol'). Todos US, sin sufijo.
+    """Nasdaq-100: primera tabla con columna 'Ticker'/'Symbol'. Todos US, sin sufijo.
 
-    Identifica la tabla por su columna de tickers vía `_parse_table_column` (igual que S&P 500),
-    sin depender de un id de tabla estable. `.` → `-` para alinear con el formato canónico
-    yfinance (defensivo: Nasdaq-100 rara vez trae puntos).
+    Wikipedia dividió el artículo en 2026-07: la tabla de componentes migró de
+    `/wiki/Nasdaq-100` a `/wiki/List_of_NASDAQ-100_companies` (columnas Ticker /
+    Company / ICBIndustry / ICBSubsector). Identifica la tabla por su columna de
+    tickers vía `_parse_table_column` (igual que S&P 500), sin depender de un id
+    de tabla estable. `.` → `-` para alinear con el formato canónico yfinance
+    (defensivo: Nasdaq-100 rara vez trae puntos).
     """
     html = _http_get(_NASDAQ100_URL)
     raw = _parse_table_column(html, ("Ticker", "Symbol"))

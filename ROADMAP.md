@@ -2,7 +2,7 @@
 
 > Documento vivo: estado actual, issues abiertos, próximos pasos. Actualizar al cierre de cada sesión.
 
-**Última actualización**: 2026-06-25
+**Última actualización**: 2026-07-17
 
 ---
 
@@ -328,7 +328,7 @@ Commit `dbbdd51`. 572 tests verdes.
 ### Estadísticas
 
 - **Tests**: 582 verdes
-- **Commits**: 164
+- **Commits**: 181
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -342,6 +342,9 @@ Commit `dbbdd51`. 572 tests verdes.
 - **[clasificación] 3 de 6 detectores primarios = 0 detecciones en 20 días de prod junio** (`capitulation_reclaim`, `range_floor`, `post_earnings_dip`). Investigar causa (umbral / ausencia en el mercado / bug) ANTES de recalibrar `TRIGGER_WEIGHTS`.
 - **[clasificación] CHD (2026-06-02) llegó al output con `regime=lateral` y `primary_trigger=NULL`** ("Lateral: sin trigger"). Un lateral sin trigger en el output sugiere hueco en el gate post-Paso-2. Revisar.
 - **[infra] Cron `7 6 * * 1-5` sigue con delays de scheduling de 4–15h** (commits del bot entre 10:00–21:00 UTC en junio). No es bug funcional; el objetivo "output listo ~3:30 ARG" no se cumple. Aceptar o evaluar self-hosted runner si molesta.
+- **[infra][RESUELTO 2026-07-17] Pipeline caído 2026-07-15→17**: Wikipedia partió el artículo NASDAQ-100 y la tabla de componentes se mudó a `List_of_NASDAQ-100_companies`. El scrape tiraba `ValueError` en `_parse_table_column` y mataba el run entero (~33s). Fix: URL actualizada (commit `5454c82`). sp500 no cayó porque ya usaba el patrón `List_of_*`.
+- **[infra] Build de universo es fail-hard**: un índice roto mata el run completo en vez de seguir con los demás. Falta fail-soft + fallback a cache de constituyentes (la lista cambia por trimestre, no por día). Ver decisión en §5.
+- **[infra] `requirements.txt` usa `>=` sin lock file — pipeline no-reproducible**. No fue la causa de esta caída, pero sigue siendo riesgo latente (la próxima lib con release roto tumba el cron).
 
 **Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía `workflow_dispatch` manual del 2026-05-28 (run del 13:30 UTC) — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Un segundo dispatch ese mismo día a las 16:58 UTC (run `26589402903`) también validó visualmente el fix del 404 en `history.html` (ver §1 spec 05) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod.
 
@@ -581,6 +584,9 @@ Para no buscarlas en specs:
 - **2026-06-25 — Hipótesis "double_bottom en downtrend/reversal es el eslabón débil" REFUTADA**: surgió de n=3, ampliada a n=10: 80% aguante, indistinguible del 83% de pullback. Confirmed (3/4) no aguantó mejor que unconfirmed (5/6). NO se endurece el gate de `double_bottom`. Cambio de diseño evitado por ampliar la muestra antes de actuar.
 - **2026-06-25 — Caveats del pase preliminar**: un solo mes, ventana variable sin normalizar, métrica de aguante (no P&L a vencimiento). El backtest robusto sigue siendo §3.6.
 - **2026-06-25 — Test date-rot `test_html_macro_banner_shown_once_not_per_card` resuelto** (commit `f198b30`): el test fijaba un `MacroEvent` el 2026-06-01 sin pinnear `timestamp` en `write_html_report`, así que el banner usaba `datetime.now()` como "today" y filtraba el evento por pasado (`e.date < today`) → fallaba al correrlo después del 2026-06-01. Fix: pasar `timestamp=datetime(2026, 5, 21, 16, 30)` explícito en la llamada del test (fecha anterior al evento, consistente con el footer), volviéndolo determinista e independiente del reloj real. Suite 582 verde.
+- **2026-07-17 — Hotfix NASDAQ-100 URL** (commit `5454c82`): Wikipedia dividió el artículo `Nasdaq-100` entre el 07-14 (último cron verde) y el 07-15 (primer failure). La tabla de componentes migró de `/wiki/Nasdaq-100` (donde solo quedaron infobox + histórico + navboxes) al artículo separado `/wiki/List_of_NASDAQ-100_companies` (columnas Ticker / Company / ICBIndustry / ICBSubsector). El scrape tiraba `ValueError: No se encontró tabla con columna en ('Ticker', 'Symbol')` en `_fetch_nasdaq100` → mataba `build_universe` → run entero en failure en ~33s. Runs #45-47 (2026-07-15/16/17) todos rojos. Fix: URL cambiada al artículo nuevo + fixture `wikipedia_nasdaq100_sample.html` actualizada al schema real + docstring con nota del split. Validación: `_fetch_nasdaq100()` real → 103 tickers US simples; suite 582 verdes; smoke `--universe nasdaq100 --limit 20` OK. **Detección tardía y por casualidad** (Pages sin corridas nuevas) → el pipeline no avisa cuando cae; los runs fallan silenciosos salvo que mires Actions.
+- **2026-07-17 — Pendiente de diseño: robustecer `build_universe` contra cambios de fuentes externas**. La caída del NASDAQ-100 expuso dos gaps: (a) **fail-hard por universo** — un índice roto tumba el run entero, cuando la política obvia es "sigue con los demás y persistí output parcial > 0 output"; (b) **sin cache de constituyentes con fallback** — la lista de miembros de un índice cambia por trimestre (S&P 500, NASDAQ-100, STOXX 600), no por día. Tener último-buen-list en disco y caer en él con warning si Wikipedia se rompe evitaría 3 días de caída silenciosa. Mismo patrón que el cache OHLCV con `merge` + fallback. Candidato a spec chica. Ver §2.
+- **2026-07-17 — Observabilidad de fallas del cron es cero**: 3 días de failures sin ningún signal fuera de la pestaña Actions. Los outputs de Pages no cambian → confusión ("¿es normal que no haya nada nuevo?"). Considerar hook mínimo — commit de un archivo `data/last_run_status.json` en el step de commit (o en un step de failure separado) que Pages renderice como banner rojo si dice "failure". Costo bajo, cero infraestructura nueva. Anotado en backlog junto con la spec de robustez de universo (§2).
 
 ---
 

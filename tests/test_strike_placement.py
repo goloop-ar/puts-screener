@@ -127,10 +127,12 @@ class TestVariantsDEF:
         assert s.anchor_kind == "zone_bound"  # lower_bound(85) < heavy_lowest(90): gana la zona
 
     def test_variant_f_orden_correcto_y_valores(self) -> None:
+        # F.conservative calibrado a -3.0*ATR (D11.12/Tanda 3, único intento pre-declarado:
+        # -2.0*ATR daba 83.9% de aguante a 45d, -3.0*ATR alcanzó 89.0% >= target 88%).
         s = compute_structural_strikes(
             self._zone(), spot=95.0, atr_14=2.0, currency="USD", variant="F"
         )
-        assert (s.conservative, s.natural, s.aggressive) == (81.0, 83.0, 84.0)
+        assert (s.conservative, s.natural, s.aggressive) == (79.0, 83.0, 84.0)
         assert s.conservative < s.natural < s.aggressive < 95.0
         assert s.anchor_kind == "zone_bound"
 

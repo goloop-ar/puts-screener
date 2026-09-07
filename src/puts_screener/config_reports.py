@@ -93,7 +93,9 @@ STRUCTURAL_STRIKE_BUFFERS_ATR: dict[str, dict[str, float]] = {
     "E": {"conservative": 1.25, "natural": 0.60, "aggressive": 0.10},  # base: min(lb, heavy_lowest)
     # F.natural es min(lower_bound - F_NATURAL_LOWER_BOUND_ATR, heavy_lowest -
     # F_NATURAL_HEAVY_ATR): dos anclas distintas, no expresable como un solo buffer sobre "base".
-    "F": {"conservative": 2.0, "aggressive": 0.25},  # base: min(lb, heavy_lowest)
+    # F.conservative calibrado a -3.0*ATR (D11.12, Tanda 3 — único intento pre-declarado: con
+    # -2.0*ATR el aguante a 45d daba 83.9%, contra el target de 88%; -3.0*ATR dio 89.0%).
+    "F": {"conservative": 3.0, "aggressive": 0.25},  # base: min(lb, heavy_lowest)
 }
 
 STRUCTURAL_STRIKE_F_NATURAL_LOWER_BOUND_ATR: float = 1.0

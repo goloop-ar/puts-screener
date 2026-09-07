@@ -51,7 +51,7 @@ def _wire_pipeline(monkeypatch, supported, *, persist_run_id="rid", boom_ticker=
 def test_pipeline_runs_three_steps_in_order(monkeypatch, final_candidate_factory):
     # Spec 10: solo los SupportedCandidate con primary_trigger pasan al Paso 3. Con la
     # fixture _tiny_ohlcv (1 bar) + sma_50w > sma_200w, los pasa_paso_2=True con
-    # best_zone.score >= SCORE_MIN_VALID disparan pullback_in_uptrend → entran al Paso 3.
+    # best_zone.score >= SCORE_MIN_VALID disparan zone_proximity (spec 12) → entran al Paso 3.
     supported = [
         final_candidate_factory(ticker="AAA", tipo="T1", score=10, passes=True).supported,
         final_candidate_factory(ticker="BBB", tipo="T1", score=8, passes=True).supported,

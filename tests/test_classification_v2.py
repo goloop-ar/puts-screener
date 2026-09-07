@@ -1,4 +1,4 @@
-"""Tests de classification_v2 (spec 10 / tanda 2).
+"""Tests de classification_v2 (spec 10 / tanda 2, revisado en spec 12).
 
 OHLCV sintético + pivots/atr/rsi construidos manualmente. Sin APIs externas.
 """
@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from puts_screener.classification_v2 import (
+    _ZONE_PROXIMITY_LEGACY_TIPO_BY_REGIME,
     ClassificationResult,
     RegimeEvaluation,
     TriggerHit,
@@ -16,11 +18,11 @@ from puts_screener.classification_v2 import (
     classify_candidate,
     evaluate_bullish_divergence,
     evaluate_post_earnings_dip,
-    evaluate_pullback_in_uptrend,
-    evaluate_range_floor,
     evaluate_regime,
+    evaluate_zone_proximity,
     select_primary_trigger,
 )
+from puts_screener.config_classification_v2 import TRIGGER_WEIGHTS
 from puts_screener.indicators import atr_series, rsi_daily_series
 from puts_screener.pivots import Pivot
 
@@ -143,66 +145,92 @@ class TestRegime:
         assert result.range_60d_pct is None
 
 
-# --- evaluate_pullback_in_uptrend (3 tests) ---
+# --- evaluate_zone_proximity (spec 12: unifica pullback_in_uptrend + range_floor) ---
 
 
-class TestPullbackInUptrend:
-    def test_pullback_hit_in_uptrend(self) -> None:
-        hit = evaluate_pullback_in_uptrend(
-            regime="uptrend", best_zone_score=10.0, best_zone_distance_pct=0.05
+class TestZoneProximity:
+    @pytest.mark.parametrize("regime", ["uptrend", "lateral", "downtrend", "reversal"])
+    def test_hits_in_any_regime(self, regime: str) -> None:
+        # El test que prueba explícitamente que dejó de ser un gate de régimen (spec 12 §8).
+        hit = evaluate_zone_proximity(
+            regime=regime, best_zone_score=10.0, best_zone_distance_pct=0.05  # type: ignore[arg-type]
         )
         assert isinstance(hit, TriggerHit)
-        assert hit.name == "pullback_in_uptrend"
-        assert hit.weight == 0.7
+        assert hit.name == "zone_proximity"
+        assert hit.weight == TRIGGER_WEIGHTS["zone_proximity"]
 
-    def test_pullback_none_in_downtrend(self) -> None:
-        hit = evaluate_pullback_in_uptrend(
-            regime="downtrend", best_zone_score=10.0, best_zone_distance_pct=0.05
-        )
-        assert hit is None
-
-    def test_pullback_none_without_best_zone(self) -> None:
-        hit = evaluate_pullback_in_uptrend(
+    def test_none_without_best_zone(self) -> None:
+        hit = evaluate_zone_proximity(
             regime="uptrend", best_zone_score=None, best_zone_distance_pct=None
         )
         assert hit is None
 
-    def test_pullback_none_when_score_below_min(self) -> None:
+    def test_none_when_score_below_min(self) -> None:
         # SCORE_MIN_VALID = 5.0
-        hit = evaluate_pullback_in_uptrend(
+        hit = evaluate_zone_proximity(
             regime="uptrend", best_zone_score=3.0, best_zone_distance_pct=0.05
         )
         assert hit is None
 
-
-# --- evaluate_range_floor (3 tests) ---
-
-
-class TestRangeFloor:
-    def test_range_floor_hit_in_lateral_at_bottom(self) -> None:
-        # Últimos 60d con rango 80→100 (highs hasta 100, lows hasta 80), close último = 82.
-        closes = [100.0] * 200
-        # En los últimos 60d alternamos para forzar rng_min=80 y rng_max=100.
-        last_60 = [80.0 if i % 5 == 0 else (100.0 if i % 7 == 0 else 90.0) for i in range(59)]
-        last_60.append(82.0)  # close último en tercio inferior
-        closes.extend(last_60)
-        ohlcv = make_ohlcv(closes)
-        hit = evaluate_range_floor(ohlcv, regime="lateral")
-        assert isinstance(hit, TriggerHit)
-        assert hit.name == "range_floor"
-
-    def test_range_floor_none_in_uptrend(self) -> None:
-        closes = [100.0] * 200 + [80.0] * 60
-        ohlcv = make_ohlcv(closes)
-        hit = evaluate_range_floor(ohlcv, regime="uptrend")
+    def test_none_when_distance_above_max(self) -> None:
+        # MAX_DISTANCE_TO_SUPPORT_PCT = 0.10
+        hit = evaluate_zone_proximity(
+            regime="uptrend", best_zone_score=10.0, best_zone_distance_pct=0.15
+        )
         assert hit is None
 
-    def test_range_floor_none_when_close_in_middle(self) -> None:
-        # Rango 80-100, close=95 → tercio superior.
-        closes = [80.0, 100.0] * 100 + [95.0] * 60
-        ohlcv = make_ohlcv(closes)
-        hit = evaluate_range_floor(ohlcv, regime="lateral")
-        assert hit is None
+
+class TestZoneProximityWeightOrdering:
+    """spec 12 D12.6: zone_proximity es el piso de último recurso — pierde contra cualquier
+    trigger que nombre una causa (estructura o evento), gana solo cuando ninguno disparó."""
+
+    def test_loses_to_double_bottom_unconfirmed(self) -> None:
+        triggers = [
+            TriggerHit("zone_proximity", TRIGGER_WEIGHTS["zone_proximity"], {}),
+            TriggerHit(
+                "double_bottom_unconfirmed", TRIGGER_WEIGHTS["double_bottom_unconfirmed"], {}
+            ),
+        ]
+        result = select_primary_trigger(triggers)
+        assert result is not None
+        assert result.name == "double_bottom_unconfirmed"
+
+    def test_loses_to_post_earnings_dip(self) -> None:
+        # El hallazgo D12.9: con pullback_in_uptrend (0.7) retirado, post_earnings_dip (0.6) deja
+        # de estar tapado por un trigger más fuerte en el mismo régimen.
+        triggers = [
+            TriggerHit("zone_proximity", TRIGGER_WEIGHTS["zone_proximity"], {}),
+            TriggerHit("post_earnings_dip", TRIGGER_WEIGHTS["post_earnings_dip"], {}),
+        ]
+        result = select_primary_trigger(triggers)
+        assert result is not None
+        assert result.name == "post_earnings_dip"
+
+    def test_double_bottom_confirmed_still_wins(self) -> None:
+        triggers = [
+            TriggerHit("zone_proximity", TRIGGER_WEIGHTS["zone_proximity"], {}),
+            TriggerHit("double_bottom_confirmed", TRIGGER_WEIGHTS["double_bottom_confirmed"], {}),
+        ]
+        result = select_primary_trigger(triggers)
+        assert result is not None
+        assert result.name == "double_bottom_confirmed"
+
+    def test_wins_when_alone(self) -> None:
+        # El rol que recupera los 36 casos históricos de regime=lateral (spec 12 §1).
+        triggers = [TriggerHit("zone_proximity", TRIGGER_WEIGHTS["zone_proximity"], {})]
+        result = select_primary_trigger(triggers)
+        assert result is not None
+        assert result.name == "zone_proximity"
+
+
+class TestZoneProximityLegacyTipo:
+    def test_mapping_covers_all_regimes(self) -> None:
+        assert _ZONE_PROXIMITY_LEGACY_TIPO_BY_REGIME == {
+            "uptrend": "T1",
+            "lateral": "T3",
+            "downtrend": "T2",
+            "reversal": "T2",
+        }
 
 
 # --- evaluate_post_earnings_dip (3 tests) ---
@@ -310,14 +338,14 @@ class TestBullishDivergence:
 
 class TestSelectPrimary:
     def test_single_trigger(self) -> None:
-        triggers = [TriggerHit("pullback_in_uptrend", 0.7, {})]
+        triggers = [TriggerHit("zone_proximity", 0.4, {})]
         result = select_primary_trigger(triggers)
         assert result is not None
-        assert result.name == "pullback_in_uptrend"
+        assert result.name == "zone_proximity"
 
     def test_picks_highest_weight(self) -> None:
         triggers = [
-            TriggerHit("range_floor", 0.6, {}),
+            TriggerHit("post_earnings_dip", 0.6, {}),
             TriggerHit("double_bottom_confirmed", 1.0, {}),
             TriggerHit("hma_weekly_flip", 0.5, {}),
         ]
@@ -337,10 +365,10 @@ class TestSelectPrimary:
 
 
 class TestCompositeLabel:
-    def test_uptrend_pullback(self) -> None:
-        primary = TriggerHit("pullback_in_uptrend", 0.7, {})
+    def test_uptrend_zone_proximity(self) -> None:
+        primary = TriggerHit("zone_proximity", 0.4, {})
         label = build_composite_label("uptrend", primary, has_divergence=False)
-        assert label == "Uptrend: Pullback en tendencia"
+        assert label == "Uptrend: Proximidad a zona"
 
     def test_downtrend_double_bottom_with_divergence(self) -> None:
         primary = TriggerHit("double_bottom_confirmed", 1.0, {})
@@ -352,21 +380,21 @@ class TestCompositeLabel:
         label = build_composite_label("reversal", primary, has_divergence=False)
         assert label == "Reversal: Capitulación con reclaim"
 
-    def test_lateral_range_floor(self) -> None:
-        primary = TriggerHit("range_floor", 0.6, {})
+    def test_lateral_zone_proximity(self) -> None:
+        primary = TriggerHit("zone_proximity", 0.4, {})
         label = build_composite_label("lateral", primary, has_divergence=False)
-        assert label == "Lateral: Piso de rango"
+        assert label == "Lateral: Proximidad a zona"
 
     def test_no_primary_trigger(self) -> None:
         label = build_composite_label("uptrend", None, has_divergence=False)
         assert label == "Uptrend: sin trigger"
 
 
-# --- classify_candidate integración (5 tests) ---
+# --- classify_candidate integración (7 tests) ---
 
 
 class TestClassifyCandidate:
-    def test_uptrend_with_pullback(self) -> None:
+    def test_uptrend_with_zone_proximity(self) -> None:
         ohlcv = make_ohlcv([100.0] * 250)
         atr = atr_series(ohlcv)
         rsi = pd.Series([50.0] * 250, index=ohlcv.index)
@@ -384,11 +412,34 @@ class TestClassifyCandidate:
         )
         assert isinstance(result, ClassificationResult)
         assert result.regime == "uptrend"
-        assert result.primary_trigger == "pullback_in_uptrend"
+        assert result.primary_trigger == "zone_proximity"
         assert result.legacy_tipo == "T1"
 
+    def test_downtrend_with_zone_proximity_only(self) -> None:
+        # Downtrend sin ningún patrón detectable (sin pivots) pero con best_zone válida:
+        # zone_proximity es el único trigger que dispara.
+        ohlcv = make_ohlcv([100.0] * 250)
+        atr = atr_series(ohlcv)
+        rsi = pd.Series([50.0] * 250, index=ohlcv.index)
+        result = classify_candidate(
+            ohlcv=ohlcv,
+            pivots=[],
+            atr=atr,
+            rsi_d=rsi,
+            sma_50w=90.0,
+            sma_200w=110.0,
+            best_zone_score=10.0,
+            best_zone_distance_pct=0.05,
+            earnings_dates=[],
+            upcoming_earnings_in_window=False,
+        )
+        assert result.regime == "downtrend"
+        assert result.primary_trigger == "zone_proximity"
+        assert result.legacy_tipo == "T2"
+
     def test_downtrend_with_double_bottom_confirmed(self) -> None:
-        # Construir un W confirmado + sma_50w < sma_200w (downtrend).
+        # Construir un W confirmado + sma_50w < sma_200w (downtrend). Sin best_zone: prueba que
+        # double_bottom_confirmed (1.0) gana igual aunque zone_proximity no compita.
         closes = [100.0] * 250
         highs = [100.5] * 250
         lows = [99.5] * 250
@@ -425,7 +476,10 @@ class TestClassifyCandidate:
         assert result.legacy_tipo == "T2"
 
     def test_reversal_with_hma_flip(self) -> None:
-        # HMA flip reciente — produce régimen reversal y hma_weekly_flip como trigger.
+        # HMA flip reciente — produce régimen reversal y hma_weekly_flip como trigger. Con
+        # zone_proximity (0.4) también disparando, hma_weekly_flip (0.5) sigue ganando: el
+        # régimen reversal siempre coincide con hma_flip_active=True por construcción, así que
+        # hma_weekly_flip co-dispara cada vez que el régimen es reversal.
         ohlcv = _build_hma_weekly_ohlcv(weeks_down=120, weeks_up=5, down_step=-0.2, up_step=2.0)
         atr = atr_series(ohlcv)
         rsi = pd.Series([50.0] * len(ohlcv), index=ohlcv.index)
@@ -436,41 +490,30 @@ class TestClassifyCandidate:
             rsi_d=rsi,
             sma_50w=80.0,
             sma_200w=90.0,
-            best_zone_score=None,
-            best_zone_distance_pct=None,
+            best_zone_score=10.0,
+            best_zone_distance_pct=0.05,
             earnings_dates=[],
             upcoming_earnings_in_window=False,
         )
         assert result.regime == "reversal"
-        # primary será hma_weekly_flip (capitulation no se construyó).
         assert result.primary_trigger == "hma_weekly_flip"
         assert result.legacy_tipo == "T2"
+        assert "zone_proximity" in result.triggers  # disparó, pero no ganó
 
-    def test_lateral_with_range_floor_plus_divergence(self) -> None:
-        # Régimen lateral exige rango60d < 15% AND smas casi iguales.
-        # range_floor exige close < min + 0.33*(max-min).
-        # Settling: high=100, low=88 → range_pct=13.6% < 15% (lateral OK).
-        # Last close=89: threshold = 88 + 0.33*12 = 91.96 → close=89 < 91.96 (range_floor fires).
-        closes = [99.5 + (i % 3 - 1) * 0.2 for i in range(200)]
-        last_60_close = [94.0] * 60
-        last_60_close[20] = 90.0  # bar 220 (pivot bajo 1)
-        last_60_close[45] = 89.0  # bar 245 (pivot bajo 2, LL)
-        last_60_close[-1] = 89.0  # close último en tercio inferior
-        closes.extend(last_60_close)
-        highs = [c * 1.005 for c in closes]
-        lows = [c * 0.995 for c in closes]
-        # Últimos 60: rango compacto pero suficiente para range_floor.
-        for i in range(200, 260):
-            highs[i] = 100.0
-            lows[i] = 88.0
-        ohlcv = make_ohlcv(closes, highs=highs, lows=lows)
+    def test_lateral_with_zone_proximity_plus_divergence(self) -> None:
+        # Régimen lateral: SMAs casi iguales + rango60d compacto (patrón de test_regime_lateral),
+        # con dos pivots bajos leves que arman divergencia alcista sin romper el rango <15%.
+        closes = [100.0 + (i % 3 - 1) * 0.5 for i in range(250)]
+        closes[220] = 98.5  # pivot bajo 1
+        closes[245] = 98.0  # pivot bajo 2 (lower low en precio, RSI más alto -> divergencia)
+        ohlcv = make_ohlcv(closes)
         atr = atr_series(ohlcv)
-        rsi = pd.Series([50.0] * 260, index=ohlcv.index)
+        rsi = pd.Series([50.0] * 250, index=ohlcv.index)
         rsi.iloc[220] = 30.0
-        rsi.iloc[245] = 42.0
+        rsi.iloc[245] = 40.0
         pivots = [
-            make_pivot(ohlcv, 220, "low", price=90.0),
-            make_pivot(ohlcv, 245, "low", price=89.0),
+            make_pivot(ohlcv, 220, "low", price=98.5),
+            make_pivot(ohlcv, 245, "low", price=98.0),
         ]
         result = classify_candidate(
             ohlcv=ohlcv,
@@ -479,13 +522,14 @@ class TestClassifyCandidate:
             rsi_d=rsi,
             sma_50w=100.0,
             sma_200w=99.5,
-            best_zone_score=None,
-            best_zone_distance_pct=None,
+            best_zone_score=10.0,
+            best_zone_distance_pct=0.05,
             earnings_dates=[],
             upcoming_earnings_in_window=False,
         )
         assert result.regime == "lateral"
-        assert result.primary_trigger == "range_floor"
+        assert result.primary_trigger == "zone_proximity"
+        assert result.legacy_tipo == "T3"
         assert "bullish_divergence" in result.triggers
         assert "+ divergencia" in result.composite_label
 
@@ -501,7 +545,7 @@ class TestClassifyCandidate:
             rsi_d=rsi,
             sma_50w=110.0,
             sma_200w=100.0,
-            best_zone_score=None,  # sin best_zone → pullback no prende
+            best_zone_score=None,  # sin best_zone → zone_proximity no prende
             best_zone_distance_pct=None,
             earnings_dates=[],
             upcoming_earnings_in_window=False,

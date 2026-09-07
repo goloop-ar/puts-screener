@@ -73,13 +73,16 @@ def _tri_state(label: str) -> bool | None:
 
 _REGIME_OPTIONS = ("uptrend", "lateral", "downtrend", "reversal")
 _PRIMARY_TRIGGER_OPTIONS = (
-    "pullback_in_uptrend",
+    "zone_proximity",  # spec 12: unifica pullback_in_uptrend + range_floor
     "double_bottom_confirmed",
     "double_bottom_unconfirmed",
     "capitulation_reclaim",
     "hma_weekly_flip",
-    "range_floor",
     "post_earnings_dip",
+    # legacy (spec 10, retirados en spec 12): se mantienen en la lista para poder filtrar runs
+    # históricos por su trigger real, aunque ningún run nuevo los produzca.
+    "pullback_in_uptrend",
+    "range_floor",
 )
 
 

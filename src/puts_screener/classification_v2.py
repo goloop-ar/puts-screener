@@ -1,8 +1,8 @@
-"""Clasificación dual régimen + triggers (spec 10).
+"""Clasificación dual régimen + triggers (spec 10, revisado en spec 12).
 
 Reemplaza el sistema legacy T1-T5 de classification.py. La función
 classify_candidate corre DESPUÉS del Paso 2 de soportes, no antes — el
-trigger `pullback_in_uptrend` necesita el `best_zone` con score y distancia.
+trigger `zone_proximity` necesita el `best_zone` con score y distancia.
 """
 
 from __future__ import annotations
@@ -19,8 +19,6 @@ from puts_screener.config_classification_v2 import (
     POST_EARNINGS_DROP_WINDOW_DAYS,
     POST_EARNINGS_LOOKBACK_DAYS,
     PRIMARY_TRIGGER_TO_LEGACY_TIPO,
-    RANGE_FLOOR_BOTTOM_THIRD,
-    RANGE_FLOOR_LOOKBACK_DAYS,
     REGIME_LABELS,
     REGIME_LATERAL_MAX_RANGE_PCT,
     REGIME_LATERAL_RANGE_DAYS,
@@ -41,6 +39,16 @@ from puts_screener.detectors import (
 from puts_screener.pivots import Pivot
 
 Regime = Literal["uptrend", "lateral", "downtrend", "reversal"]
+
+# zone_proximity (spec 12) dispara en los 4 regímenes, así que su legacy_tipo no puede ser una
+# entrada fija de PRIMARY_TRIGGER_TO_LEGACY_TIPO como los demás triggers (cada uno vive en un solo
+# régimen). Mapeo condicionado por régimen, replicando la distinción T1/T2/T3 pre-spec-10.
+_ZONE_PROXIMITY_LEGACY_TIPO_BY_REGIME: dict[str, str] = {
+    "uptrend": "T1",
+    "lateral": "T3",
+    "downtrend": "T2",  # mismo T2 que double_bottom/capitulation en downtrend
+    "reversal": "T2",  # mismo T2 que double_bottom/capitulation/hma_flip en reversal
+}
 
 
 @dataclass(frozen=True)
@@ -150,66 +158,6 @@ def evaluate_regime(
 # --- Triggers ---
 
 
-def evaluate_pullback_in_uptrend(
-    *,
-    regime: Regime,
-    best_zone_score: float | None,
-    best_zone_distance_pct: float | None,
-) -> TriggerHit | None:
-    """pullback_in_uptrend: régimen uptrend + best_zone con score válido + distancia OK."""
-    if regime not in TRIGGER_REGIME_COMPAT["pullback_in_uptrend"]:
-        return None
-    if best_zone_score is None or best_zone_distance_pct is None:
-        return None
-    if best_zone_score < SCORE_MIN_VALID:
-        return None
-    if best_zone_distance_pct > MAX_DISTANCE_TO_SUPPORT_PCT:
-        return None
-    return TriggerHit(
-        name="pullback_in_uptrend",
-        weight=TRIGGER_WEIGHTS["pullback_in_uptrend"],
-        metadata={
-            "best_zone_score": best_zone_score,
-            "best_zone_distance_pct": best_zone_distance_pct,
-        },
-    )
-
-
-def evaluate_range_floor(
-    ohlcv: pd.DataFrame,
-    *,
-    regime: Regime,
-    today: pd.Timestamp | None = None,
-) -> TriggerHit | None:
-    """range_floor: régimen lateral + close actual en tercio inferior del rango 60d."""
-    if regime not in TRIGGER_REGIME_COMPAT["range_floor"]:
-        return None
-    if ohlcv.empty:
-        return None
-    df = ohlcv if today is None else ohlcv.loc[:today]
-    if len(df) < RANGE_FLOOR_LOOKBACK_DAYS:
-        return None
-    window = df.iloc[-RANGE_FLOOR_LOOKBACK_DAYS:]
-    rng_min = float(window["Low"].min())
-    rng_max = float(window["High"].max())
-    if rng_max <= rng_min:
-        return None
-    close_today = float(df["Close"].iloc[-1])
-    threshold = rng_min + RANGE_FLOOR_BOTTOM_THIRD * (rng_max - rng_min)
-    if close_today >= threshold:
-        return None
-    return TriggerHit(
-        name="range_floor",
-        weight=TRIGGER_WEIGHTS["range_floor"],
-        metadata={
-            "range_min": rng_min,
-            "range_max": rng_max,
-            "close": close_today,
-            "threshold": threshold,
-        },
-    )
-
-
 def evaluate_post_earnings_dip(
     ohlcv: pd.DataFrame,
     earnings_dates: list[pd.Timestamp],
@@ -258,6 +206,40 @@ def evaluate_post_earnings_dip(
             "close_pre": close_pre,
             "close_post": close_post,
             "drop_pct": drop,
+        },
+    )
+
+
+def evaluate_zone_proximity(
+    *,
+    regime: Regime,
+    best_zone_score: float | None,
+    best_zone_distance_pct: float | None,
+) -> TriggerHit | None:
+    """zone_proximity: best_zone con score válido + distancia OK, en cualquier régimen (spec 12).
+
+    Trigger genérico de posición: cierto para el 100% de los candidatos que llegan hasta acá (ya
+    pasaron Paso 2). Peso deliberadamente bajo (0.4, config_classification_v2) para que ceda ante
+    cualquier trigger que nombre una causa concreta — estructura (double_bottom_*,
+    capitulation_reclaim, hma_weekly_flip) o evento (post_earnings_dip). Es el piso de último
+    recurso: evita que un candidato con zona validada se caiga del output por no tener trigger
+    nombrado. Unifica al retirado pullback_in_uptrend (mismas condiciones, sin el gate de
+    régimen) y al retirado range_floor (nunca disparó — spec 12 §11 D12.1).
+    """
+    if regime not in TRIGGER_REGIME_COMPAT["zone_proximity"]:
+        return None
+    if best_zone_score is None or best_zone_distance_pct is None:
+        return None
+    if best_zone_score < SCORE_MIN_VALID:
+        return None
+    if best_zone_distance_pct > MAX_DISTANCE_TO_SUPPORT_PCT:
+        return None
+    return TriggerHit(
+        name="zone_proximity",
+        weight=TRIGGER_WEIGHTS["zone_proximity"],
+        metadata={
+            "best_zone_score": best_zone_score,
+            "best_zone_distance_pct": best_zone_distance_pct,
         },
     )
 
@@ -362,22 +344,14 @@ def classify_candidate(
     upcoming_earnings_in_window: bool,
     today: pd.Timestamp | None = None,
 ) -> ClassificationResult:
-    """Orquesta régimen + 7 triggers + selección primaria + label compuesto + legacy mapper."""
+    """Orquesta régimen + triggers (7 nombres posibles) + selección primaria + label compuesto +
+    legacy mapper."""
     regime_eval = evaluate_regime(ohlcv, sma_50w, sma_200w, today=today)
     regime = regime_eval.regime
 
     hits: list[TriggerHit] = []
 
-    # 1. pullback_in_uptrend (solo en uptrend).
-    pullback = evaluate_pullback_in_uptrend(
-        regime=regime,
-        best_zone_score=best_zone_score,
-        best_zone_distance_pct=best_zone_distance_pct,
-    )
-    if pullback is not None:
-        hits.append(pullback)
-
-    # 2. double_bottom (confirmed | unconfirmed).
+    # 1. double_bottom (confirmed | unconfirmed).
     if regime in TRIGGER_REGIME_COMPAT["double_bottom_confirmed"]:
         dbl = detect_double_bottom(ohlcv, pivots, today=today)
         if dbl is not None:
@@ -398,7 +372,7 @@ def classify_candidate(
                 )
             )
 
-    # 3. capitulation_reclaim.
+    # 2. capitulation_reclaim.
     if regime in TRIGGER_REGIME_COMPAT["capitulation_reclaim"]:
         cap = detect_capitulation_reclaim(ohlcv, atr, today=today)
         if cap is not None:
@@ -416,7 +390,7 @@ def classify_candidate(
                 )
             )
 
-    # 4. hma_weekly_flip (solo en reversal — el régimen ya verificó el flip).
+    # 3. hma_weekly_flip (solo en reversal — el régimen ya verificó el flip).
     if regime in TRIGGER_REGIME_COMPAT["hma_weekly_flip"] and regime_eval.hma_flip_active:
         hits.append(
             TriggerHit(
@@ -426,12 +400,7 @@ def classify_candidate(
             )
         )
 
-    # 5. range_floor.
-    range_hit = evaluate_range_floor(ohlcv, regime=regime, today=today)
-    if range_hit is not None:
-        hits.append(range_hit)
-
-    # 6. post_earnings_dip.
+    # 4. post_earnings_dip.
     earn_hit = evaluate_post_earnings_dip(
         ohlcv,
         earnings_dates,
@@ -442,7 +411,19 @@ def classify_candidate(
     if earn_hit is not None:
         hits.append(earn_hit)
 
-    # 7. bullish_divergence (modificador, no compite por primary).
+    # 5. zone_proximity — piso de último recurso (spec 12): se evalúa último entre los triggers
+    # que compiten por primary porque cede ante cualquiera que nombre una causa (peso 0.4, el más
+    # bajo del catálogo salvo el modificador bullish_divergence). Unifica los retirados
+    # pullback_in_uptrend y range_floor.
+    zone_hit = evaluate_zone_proximity(
+        regime=regime,
+        best_zone_score=best_zone_score,
+        best_zone_distance_pct=best_zone_distance_pct,
+    )
+    if zone_hit is not None:
+        hits.append(zone_hit)
+
+    # 6. bullish_divergence (modificador, no compite por primary).
     div_hit = evaluate_bullish_divergence(ohlcv, rsi_d, pivots, today=today)
     if div_hit is not None:
         hits.append(div_hit)
@@ -456,7 +437,13 @@ def classify_candidate(
     trigger_metadata = {t.name: t.metadata for t in hits}
 
     label = build_composite_label(regime, primary, has_divergence)
-    legacy_tipo = PRIMARY_TRIGGER_TO_LEGACY_TIPO.get(primary.name) if primary else None
+    legacy_tipo = (
+        _ZONE_PROXIMITY_LEGACY_TIPO_BY_REGIME.get(regime)
+        if primary is not None and primary.name == "zone_proximity"
+        else PRIMARY_TRIGGER_TO_LEGACY_TIPO.get(primary.name)
+        if primary is not None
+        else None
+    )
 
     return ClassificationResult(
         regime=regime,

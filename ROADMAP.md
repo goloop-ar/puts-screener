@@ -379,10 +379,54 @@ D11.11–D11.13):
 renderizando correctamente en CSV/HTML). Smoke con persistencia (`--limit 15`, dos corridas
 consecutivas sobre DB de scratch): migración idempotente confirmada, sin duplicar ni pisar filas.
 
+### Spec 12 — Trigger de proximidad a zona (unifica `pullback_in_uptrend` + `range_floor`) ✅ Cerrada (2026-09-07)
+
+Diagnóstico + fix del issue de ROADMAP §2 "`range_floor` con 0/36 detecciones en `regime=lateral`"
+(detectado durante spec 11). Causa raíz: `range_floor` exigía el cierre en el tercio inferior de un
+rango de 60 días hábiles calculado independiente de la zona — condición que, en 36/36 casos
+históricos, solo se satisface a un precio donde la zona ya está invalidada por
+`ZONE_MIN_DISTANCE_PCT=3%` (spec 02). El candidato ni siquiera llega a `classify_candidate`. 0
+detecciones en 4.5 meses / 85 runs; 30 candidatos de score alto perdidos solo en agosto.
+
+- [x] `evaluate_zone_proximity` unifica `pullback_in_uptrend` (retirado, absorbido) y
+  `range_floor` (retirado sin reemplazo, nunca disparó) en un único trigger, con las mismas dos
+  condiciones de zona (`score >= 5.0`, `distance_pct <= 10%`), sin gate de régimen — dispara en
+  `uptrend`/`lateral`/`downtrend`/`reversal`. Cero constantes nuevas.
+- [x] Peso `TRIGGER_WEIGHTS["zone_proximity"] = 0.4` (revisado de un borrador con 0.7): el más
+  bajo entre los triggers que compiten por primary, por debajo de todo trigger que nombre una
+  causa concreta (estructura o evento) — cede ante `double_bottom_*`, `capitulation_reclaim`,
+  `hma_weekly_flip` y `post_earnings_dip`, gana solo cuando ninguno disparó.
+- [x] `legacy_tipo` para `zone_proximity` resuelto por régimen
+  (`_ZONE_PROXIMITY_LEGACY_TIPO_BY_REGIME`: uptrend→T1, lateral→T3, downtrend/reversal→T2), no vía
+  la tabla plana que usan los demás triggers (spec 12 §6.3).
+- [x] Sin migración de DB. Runs históricos conservan `pullback_in_uptrend`/`range_floor` en
+  `primary_trigger` tal cual — no se reescriben. `streamlit_app/views.py` mantiene ambos nombres
+  en el filtro para poder seguir filtrando runs viejos.
+
+**Validación retroactiva post-implementación** (`scratch/validate_zone_proximity.py`, corrida
+sobre las 1113 clasificaciones históricas con el código real, no una simulación):
+- **36/36** casos `regime=lateral` disparan `zone_proximity` como primario — los candidatos
+  recuperados.
+- **0/1113** candidatos que llegaban al output dejan de llegar.
+- Tabla de transiciones real (coincide exacto con la simulada antes de implementar):
+  `pullback_in_uptrend → zone_proximity` 655, `pullback_in_uptrend → post_earnings_dip` 61 (efecto
+  esperado de D12.9 — ver más abajo), `None → zone_proximity` 36, 0 pierden `primary_trigger`. Los
+  155 `double_bottom_unconfirmed` conservan su primario sin cambio.
+
+**Hallazgos registrados sin acción** (ver §2): `post_earnings_dip` estaba tapado por
+`pullback_in_uptrend` (69 disparos en `triggers_json` histórico, solo 4 como primary) y queda
+destapado por primera vez; `hma_weekly_flip` dispara 112 veces pero gana primary solo 3, sin
+cambios con el peso elegido. Ambos candidatos a revisión de peso con datos de outcome, no resueltos
+acá. Tampoco se tocaron los umbrales de `evaluate_regime` (blast radius medido, N=21 no
+concluyente en el punto que hubiera decidido — spec 12 §11 D12.5).
+
+Commits `65b9b87` (spec), `3af733f` (implementación). 636 tests verdes (630 + 12 nuevos - 6
+retirados de los triggers viejos).
+
 ### Estadísticas
 
-- **Tests**: 630 verdes
-- **Commits**: 229
+- **Tests**: 636 verdes
+- **Commits**: 232
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -417,15 +461,12 @@ consecutivas sobre DB de scratch): migración idempotente confirmada, sin duplic
   en `get_ohlcv` en sí sigue sin arreglar. Candidato a fix: chequear la edad de la última barra
   cacheada y forzar `_fetch_full` si supera un umbral (ej. `OHLCV_REFRESH_DAYS`), en vez de siempre
   incremental.
-- **[clasificación] `range_floor` con 0/36 detecciones en `regime=lateral` (su única
-  precondición de régimen) — 30 candidatos perdidos en agosto.** Refina el issue de 2026-06-25
-  ("3 de 6 detectores primarios = 0 detecciones"): la medición de spec 11 sobre el dataset de
-  backtest (1113 zonas, mayo-septiembre) confirma que `range_floor` sigue en 0 detecciones pese a
-  36 zonas con `regime=lateral` disponibles como población candidata, y que agosto por sí solo
-  perdió ~30 candidatos que podrían haber calificado. Es un bug propio de `range_floor`
-  (`detectors.py`/`classification_v2.py`), no ausencia real del patrón en el mercado — requiere
-  diagnóstico independiente (revisar la lógica del detector contra casos reales de `regime=lateral`
-  antes de tocar `TRIGGER_WEIGHTS`). Fuera de scope de spec 11 (ver spec 11 §2 "Fuera de scope").
+- **[RESUELTO 2026-09-07, spec 12] `range_floor` con 0/36 detecciones en `regime=lateral`.**
+  Diagnosticado y arreglado en spec 12: la causa era un choque estructural entre
+  `ZONE_MIN_DISTANCE_PCT` (spec 02) y la condición de rango 60d propia de `range_floor` (spec 10) —
+  ver spec 12 §11 D12.1. Fix: `range_floor` y `pullback_in_uptrend` se unificaron en un único
+  trigger `zone_proximity`, sin gate de régimen. Los 36 candidatos históricos ahora disparan
+  `zone_proximity` (verificado retroactivamente, `scratch/validate_zone_proximity.py`). Ver §1.
 - **[clasificación] 32 zonas con `pasa_paso_2=1` y `regime IS NULL` en 4 runs de 8 tickers cada
   uno (D11.8 de spec 11).** Tienen `pasa_paso_2=1` y strikes poblados pero nunca fueron
   clasificadas — bug de clasificación, no una categoría analítica. Se excluyeron del dataset de
@@ -433,6 +474,25 @@ consecutivas sobre DB de scratch): migración idempotente confirmada, sin duplic
   clasificadas-sin-trigger habría contaminado esa comparación). Diagnóstico pendiente: identificar
   los 4 run_ids afectados y por qué `_classify_supported` no corrió o falló silenciosamente para
   esos 8 tickers × 4 runs.
+- **[clasificación] `evaluate_regime` no es determinista.** El régimen reproducido reconstruyendo
+  el OHLCV desde cache coincide con el persistido en 1093/1112 (98.3%); los 19 mismatches están en
+  el borde de `reversal` por `detect_hma_weekly_flip`. Detectado en el diagnóstico de
+  `range_floor` (sesión 2026-09-07, `scratch/diagnose_lateral_sensitivity.py`) al comparar el
+  régimen recalculado contra el guardado en `candidates.regime` para las 1113 filas históricas.
+  Debería ser función pura del OHLCV (mismo input → mismo output siempre); la causa más probable
+  es que la ventana de detección del flip HMA dependa de algo sensible a *cuándo* se corre (ej.
+  `datetime.now()` implícito en vez de derivar todo de `today`/`ohlcv`), pero no se investigó la
+  causa exacta — queda para diagnóstico aparte.
+- **[clasificación] `post_earnings_dip` estaba tapado por `pullback_in_uptrend`, no era de baja
+  frecuencia.** Detectado en spec 12 (D12.9): dispara 69 veces en `triggers_json` sobre las 1113
+  filas históricas pero ganaba `primary` solo 4 — el retirado `pullback_in_uptrend` (0.7 > 0.6) le
+  ganaba casi siempre en el mismo régimen (`uptrend`). Con `zone_proximity=0.4` esto se destapa
+  (61 casos pasan a mostrar `post_earnings_dip` como primario). No es un issue por resolver, es
+  contexto para cuando se evalúe su peso con datos de outcome.
+- **[clasificación] `hma_weekly_flip` dispara 112 veces en `triggers_json` pero gana `primary`
+  solo 3.** Detectado en spec 12 (D12.8), no tocado (`zone_proximity=0.4` no cambia este
+  desbalance). Candidato a revisión de peso (hoy 0.5) con datos de outcome (backtest) en sesión
+  aparte — mismo criterio que la recalibración de `TRIGGER_WEIGHTS` ya anotada en §4.
 
 **Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía `workflow_dispatch` manual del 2026-05-28 (run del 13:30 UTC) — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Un segundo dispatch ese mismo día a las 16:58 UTC (run `26589402903`) también validó visualmente el fix del 404 en `history.html` (ver §1 spec 05) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod.
 
@@ -444,22 +504,22 @@ Próximo bloque: Fase 5 MVP terminada (spec 09). Próximo bloque a definir post-
 
 ### 3.1 Inmediato (próxima sesión)
 
-Spec 11 cerrada (confirmación por velas como anotación + strikes estructurales variante F en
-producción). Próximo paso: **usar el sistema en producción 1-2 semanas y dejar que emerjan
-ajustes empíricos**, igual que tras spec 10. Candidatos para la siguiente sesión (sin
-priorización fija):
+Spec 12 cerrada (`zone_proximity` unifica `pullback_in_uptrend` + `range_floor`, recupera los 36
+candidatos de `regime=lateral` perdidos). Spec 11 (velas + strikes estructurales) también cerrada.
+Próximo paso: **usar el sistema en producción 1-2 semanas y dejar que emerjan ajustes empíricos**,
+igual que tras spec 10. Candidatos para la siguiente sesión (sin priorización fija):
 - (a) Diagnóstico del bug de `get_ohlcv` (gaps silenciosos en refetch incremental, §2) — el más
   barato de arreglar (un chequeo de edad de la última barra) y el que más silenciosamente puede
   contaminar mediciones futuras si no se corrige.
-- (b) Diagnóstico de `range_floor` (0/36 detecciones, §2) — mismo patrón que llevó a la regla
-  metodológica de spec 11 (medir antes de integrar); ahora aplica investigar por qué el detector
-  nunca dispara.
-- (c) Diagnóstico de las 32 zonas `pasa_paso_2=1`/`regime IS NULL` (§2, D11.8) — identificar los 4
+- (b) Diagnóstico de las 32 zonas `pasa_paso_2=1`/`regime IS NULL` (§2, D11.8) — identificar los 4
   run_ids afectados.
-- (d) Spec 10.5: detectores que quedaron en backlog (`higher_low + trendline_break`;
+- (c) Diagnóstico del no-determinismo de `evaluate_regime` (§2, detectado en spec 12) — 19/1112
+  mismatches en el borde de `reversal`/HMA flip.
+- (d) Recalibración de `post_earnings_dip`/`hma_weekly_flip` con datos de outcome (§2, D12.8/D12.9
+  de spec 12) — ambos con desbalance disparos-vs-primary ahora documentado, ninguno tocado.
+- (e) Spec 10.5: detectores que quedaron en backlog (`higher_low + trendline_break`;
   `bullish_divergence` como trigger primario si validación empírica lo justifica).
-- (e) Recalibración de pesos en `TRIGGER_WEIGHTS` según distribución observada (especialmente `hma_weekly_flip` 0.5 → 0.7 si los flip-único terminan siendo trades buenos).
-- (f) Backtesting agendado (§3.6) cuando haya suficientes semanas de runs automáticos en `screening_history.db` acumuladas post-spec-11.
+- (f) Backtesting agendado (§3.6) cuando haya suficientes semanas de runs automáticos en `screening_history.db` acumuladas post-spec-12.
 - (g) Spec 09 Fase 5 segunda iteración (overlays adicionales, panel de ejecución) si el uso real lo demanda.
 
 ### 3.2 Fase 3 — Producción
@@ -691,6 +751,9 @@ Para no buscarlas en specs:
 - **2026-09-07 — Spec 11, confirmación por velas queda como anotación, no gate (D11.12)**: la tabla de aguante restringida a zonas donde el precio efectivamente entró a la zona (N=30 confirmadas por vela vs N=124 sin confirmar, a 45 días) no mostró dirección consistente — el signo de la diferencia cambia según variante y tipo de strike. `candle_signals` se persiste y se renderiza (mismo tratamiento visual que DIVERGENCIA: informativo, sin destaque, peso 0.0 en score y en strike).
 - **2026-09-07 — Spec 11, enmienda al criterio de tasa de detección de §9 (D11.13)**: el piso original ("ningún `CandleKind` con tasa <2%") se reemplazó por "ningún detector estructuralmente excluido de su población". Los 3 kinds bajistas cayeron bajo 2% con data real no por umbral mal calibrado sino porque el gate de `detect_bearish_breakdown` (`close <= zone.upper_bound`) combinado con `ZONE_MIN_DISTANCE_PCT=0.03` excluye por diseño casi todas las oportunidades al momento exacto de la detección. Motivó medir `bearish_breakdown` también in-window (durante toda la ventana forward, no solo en `fetched_at`), donde sí mostró poder predictivo consistente.
 - **2026-09-07 — Spec 11, bug de gaps en `get_ohlcv` descubierto durante el backtest**: la rama cache-hit de `get_ohlcv` siempre hace refetch incremental de `OHLCV_REFRESH_DAYS=7` días sin chequear la edad de la última barra cacheada. Con una cache parada semanas, el merge deja un agujero silencioso en el medio (confirmado: 100% de una muestra de 40 tickers del dataset de backtest tenía el mismo patrón de huecos de ~6 semanas). Mitigado ad-hoc solo para los 131 tickers del dataset (refetch completo); el bug del provider en sí queda abierto en §2 — es latente en producción si la cache de GitHub Actions rota o se pierde un tramo, aunque el cron diario normalmente lo evita.
+- **2026-09-07 — Spec 12, `range_floor` y `pullback_in_uptrend` se unifican en `zone_proximity` (D12.1-D12.3)**: ambos medían "cerca de una zona validada" — `pullback_in_uptrend` con las condiciones correctas (`score>=5`, `distance_pct<=10%`) pero gateado a `uptrend`; `range_floor` con una condición de rango 60d independiente que chocaba con `ZONE_MIN_DISTANCE_PCT` (spec 02) y nunca disparaba (0/36 en 4.5 meses). Fix: un solo trigger regime-agnóstico con las condiciones de `pullback_in_uptrend`, sin gate de régimen. `pullback_in_uptrend` se absorbe (era 716/1113 = 64% del output histórico, no se podía retirar sin reemplazo); `range_floor` se retira sin reemplazo (0 filas reales en toda la DB).
+- **2026-09-07 — Spec 12, peso de `zone_proximity` = 0.4, no 0.7 (D12.6)**: revisado tras simular la reclasificación completa con ambos valores contra la DB real (1113 filas). Con 0.7 (heredado sin revisar de `pullback_in_uptrend`), 155 candidatos con `double_bottom_unconfirmed` (peso 0.5) pasaban a mostrar `zone_proximity` como primario — efecto no buscado, expuesto recién al desacoplar el régimen (antes `pullback_in_uptrend` y `double_bottom_unconfirmed` nunca competían por vivir en regímenes distintos). Regla adoptada: `zone_proximity` es un trigger genérico de posición (cierto para el 100% de los candidatos que pasan Paso 2) y debe ceder ante CUALQUIER trigger que nombre una causa — estructura o evento —, no ganarles. Con 0.4 queda por debajo de todos ellos; los 155 `double_bottom_unconfirmed` conservan su primario. Efecto secundario verificado y aceptado (D12.9): 61 candidatos pasan de `pullback_in_uptrend` a `post_earnings_dip`, que estaba sistemáticamente tapado (69 disparos históricos en `triggers_json`, solo 4 como primary).
+- **2026-09-07 — Spec 12, no se tocan los umbrales de `evaluate_regime` (D12.5)**: blast radius medido para 6 combinaciones de `(REGIME_LATERAL_TOLERANCE_PCT, REGIME_LATERAL_MAX_RANGE_PCT)`. La pregunta que hubiera decidido (¿el grupo reclasificado a `lateral` aguanta igual/mejor/peor que el que se queda en `uptrend`?) salió N=21, no concluyente (mínimo declarado: 30). Además la combinación más agresiva probada diluye `lateral` con candidatos de rango 60d casi el doble del real. El problema real (candidatos perdidos) se resolvió sin necesitar tocar `evaluate_regime`.
 
 ---
 

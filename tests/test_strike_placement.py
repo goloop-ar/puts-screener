@@ -95,6 +95,75 @@ class TestVariantOrdering:
         assert s.conservative < s.natural < s.aggressive < 150.0
 
 
+# --- Variantes D/E/F (tanda 2): los 3 niveles en o debajo de lower_bound ---
+
+
+class TestVariantsDEF:
+    def _zone(self) -> SupportZone:
+        # misma composición que TestVariantOrdering._zone: heavy_lowest=90 (sma_200d),
+        # heavy_highest=95 (ema_200d), lower_bound=85 < heavy_lowest (invariante estructural).
+        elements = [
+            SupportLevel(price=90.0, element="sma_200d"),
+            SupportLevel(price=95.0, element="ema_200d"),
+            SupportLevel(price=88.0, element="fib_618"),
+        ]
+        return make_zone(85.0, 100.0, elements)
+
+    def test_variant_d_orden_correcto_y_valores(self) -> None:
+        s = compute_structural_strikes(
+            self._zone(), spot=95.0, atr_14=2.0, currency="USD", variant="D"
+        )
+        assert (s.conservative, s.natural, s.aggressive) == (82.0, 83.0, 84.0)
+        assert s.conservative < s.natural < s.aggressive < 95.0
+        assert s.anchor_kind == "zone_bound"
+        assert s.conservative_anchor == s.aggressive_anchor == "zone_lower_bound"
+
+    def test_variant_e_orden_correcto_y_valores(self) -> None:
+        s = compute_structural_strikes(
+            self._zone(), spot=95.0, atr_14=2.0, currency="USD", variant="E"
+        )
+        assert (s.conservative, s.natural, s.aggressive) == (82.0, 83.0, 84.0)
+        assert s.conservative < s.natural < s.aggressive < 95.0
+        assert s.anchor_kind == "zone_bound"  # lower_bound(85) < heavy_lowest(90): gana la zona
+
+    def test_variant_f_orden_correcto_y_valores(self) -> None:
+        s = compute_structural_strikes(
+            self._zone(), spot=95.0, atr_14=2.0, currency="USD", variant="F"
+        )
+        assert (s.conservative, s.natural, s.aggressive) == (81.0, 83.0, 84.0)
+        assert s.conservative < s.natural < s.aggressive < 95.0
+        assert s.anchor_kind == "zone_bound"
+
+    def test_def_aggressive_queda_en_o_debajo_de_lower_bound(self) -> None:
+        # La razón de ser de D/E/F: a diferencia de A/B/C (aggressive puede quedar DENTRO de la
+        # zona), acá los 3 niveles caen a <= lower_bound.
+        zone = self._zone()
+        for variant in ("D", "E", "F"):
+            s = compute_structural_strikes(
+                zone, spot=95.0, atr_14=2.0, currency="USD", variant=variant
+            )
+            assert s.aggressive <= zone.lower_bound, f"variant {variant}: {s.aggressive}"
+
+    def test_variant_e_min_elige_heavy_cuando_esta_bajo_lower_bound(self) -> None:
+        # Caso sintético (no ocurre en zonas reales del pipeline, donde lower_bound siempre es
+        # <= heavy_lowest): prueba que _min_base_anchor elige el heavy cuando gana el min().
+        elements = [SupportLevel(price=80.0, element="sma_200d")]
+        zone = make_zone(85.0, 100.0, elements)
+        s = compute_structural_strikes(zone, spot=95.0, atr_14=1.0, currency="USD", variant="E")
+        assert s.anchor_kind == "heavy_element"
+        assert s.conservative_anchor == "sma_200d"
+        assert s.aggressive_anchor == "sma_200d"
+        assert s.conservative < s.natural < s.aggressive < 95.0
+
+    def test_variant_d_no_requiere_heavy_pero_igual_hace_fallback_sin_el(self) -> None:
+        # D no usa heavy en su fórmula, pero la regla de fallback es uniforme entre variantes.
+        elements = [SupportLevel(price=95.0, element="fib_618")]  # liviano, no heavy
+        zone = make_zone(90.0, 96.0, elements)
+        s = compute_structural_strikes(zone, spot=100.0, atr_14=2.0, currency="USD", variant="D")
+        assert s.anchor_kind == "fallback_atr"
+        assert s.variant == "D"
+
+
 # --- Redondeo hacia abajo, para las 4 grillas de divisa ---
 
 

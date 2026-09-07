@@ -87,7 +87,17 @@ STRUCTURAL_STRIKE_BUFFERS_ATR: dict[str, dict[str, float]] = {
     "A": {"conservative": 0.25, "natural": 0.25, "aggressive": 0.0},
     "B": {"conservative": 0.5, "natural": 0.0, "aggressive": 0.1},
     "C": {"conservative": 0.5, "natural": 0.1, "aggressive": 0.0},
+    # D/E/F (tanda 2, post-backtest): los 3 niveles caen en o debajo de lower_bound, a
+    # diferencia de A/B/C donde aggressive queda dentro de la zona.
+    "D": {"conservative": 1.50, "natural": 0.75, "aggressive": 0.25},  # base: lower_bound
+    "E": {"conservative": 1.25, "natural": 0.60, "aggressive": 0.10},  # base: min(lb, heavy_lowest)
+    # F.natural es min(lower_bound - F_NATURAL_LOWER_BOUND_ATR, heavy_lowest -
+    # F_NATURAL_HEAVY_ATR): dos anclas distintas, no expresable como un solo buffer sobre "base".
+    "F": {"conservative": 2.0, "aggressive": 0.25},  # base: min(lb, heavy_lowest)
 }
+
+STRUCTURAL_STRIKE_F_NATURAL_LOWER_BOUND_ATR: float = 1.0
+STRUCTURAL_STRIKE_F_NATURAL_HEAVY_ATR: float = 0.5
 
 # === Mini-chart SVG (spec 07) ===
 MINI_CHART_WIDTH: int = 480

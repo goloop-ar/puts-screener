@@ -1,18 +1,24 @@
 """Strikes estructurales anclados a elementos de soporte reales (spec 11 §3.3/§5/§6.5).
 
-Tres variantes candidatas (A/B/C) sobre los `SupportLevel` "heavy" de la zona
-(`ELEMENT_WEIGHTS >= HEAVY_ELEMENT_WEIGHT_THRESHOLD`). `compute_heuristic_strikes` (strikes.py)
-NO se toca: sigue siendo el fallback cuando la zona no tiene anclas heavy, y la línea de base
-del backtest de la tanda 2.
+Variantes A/B/C sobre los `SupportLevel` "heavy" de la zona (`ELEMENT_WEIGHTS >=
+HEAVY_ELEMENT_WEIGHT_THRESHOLD`). Variantes D/E/F (tanda 2, agregadas tras el primer backtest):
+el backtest mostró que en A/B/C el `aggressive` queda anclado DENTRO de la zona, así que "el
+precio entra a la zona" y "se perfora aggressive" son casi el mismo evento — D/E/F bajan los 3
+niveles a o por debajo de `lower_bound` para separar ambos eventos. `compute_heuristic_strikes`
+(strikes.py) NO se toca: sigue siendo el fallback cuando la zona no tiene anclas heavy, y la
+línea de base del backtest.
 """
 
 import logging
 from math import floor
-from typing import Literal
 
-from puts_screener.config_reports import STRUCTURAL_STRIKE_BUFFERS_ATR
+from puts_screener.config_reports import (
+    STRUCTURAL_STRIKE_BUFFERS_ATR,
+    STRUCTURAL_STRIKE_F_NATURAL_HEAVY_ATR,
+    STRUCTURAL_STRIKE_F_NATURAL_LOWER_BOUND_ATR,
+)
 from puts_screener.config_supports import ELEMENT_WEIGHTS, HEAVY_ELEMENT_WEIGHT_THRESHOLD
-from puts_screener.models_reports import StructuralStrikes
+from puts_screener.models_reports import StrikeVariant, StructuralStrikes
 from puts_screener.models_support import SupportLevel, SupportZone
 from puts_screener.strikes import _grid_for_currency, compute_heuristic_strikes
 
@@ -49,12 +55,23 @@ def _enforce_order(
     return conservative, natural, aggressive
 
 
+def _min_base_anchor(zone: SupportZone, heavy_lowest: SupportLevel) -> tuple[float, str]:
+    """min(lower_bound, heavy_lowest.price) + la etiqueta de cuál de los dos ganó (E/F, y el
+    conservative de C). En la práctica lower_bound siempre es <= heavy_lowest (lower_bound =
+    min de TODOS los elementos del cluster - buffer, así que nunca puede superar al mínimo de
+    solo el subconjunto heavy) — pero el min() se calcula igual por si ese invariante no se
+    sostiene en zonas pre-gate."""
+    if heavy_lowest.price <= zone.lower_bound:
+        return heavy_lowest.price, heavy_lowest.element
+    return zone.lower_bound, "zone_lower_bound"
+
+
 def _fallback(
     zone: SupportZone,
     spot: float,
     atr_14: float,
     currency: str,
-    variant: Literal["A", "B", "C"],
+    variant: StrikeVariant,
 ) -> StructuralStrikes:
     heuristic = compute_heuristic_strikes(
         zone.lower_bound, zone.upper_bound, zone.center_price, spot, atr_14, currency
@@ -77,7 +94,7 @@ def compute_structural_strikes(
     atr_14: float,
     currency: str,
     *,
-    variant: Literal["A", "B", "C"] = "A",
+    variant: StrikeVariant = "A",
 ) -> StructuralStrikes:
     """Calcula los 3 strikes anclados a los elementos heavy de la zona (spec 11 §6.5).
 
@@ -94,6 +111,7 @@ def compute_structural_strikes(
 
     conservative_anchor: str | None
     aggressive_anchor: str | None
+    anchor_kind: str
 
     if variant == "A":
         conservative_raw = heavy_lowest.price - buffers["conservative"] * atr_14
@@ -101,7 +119,7 @@ def compute_structural_strikes(
         natural_raw = zone.lower_bound - buffers["natural"] * atr_14
         aggressive_raw = heavy_highest.price - buffers["aggressive"] * atr_14
         aggressive_anchor = heavy_highest.element
-        anchor_kind: Literal["heavy_element", "zone_bound", "fallback_atr"] = "heavy_element"
+        anchor_kind = "heavy_element"
     elif variant == "B":
         conservative_raw = heavy_lowest.price - buffers["conservative"] * atr_14
         conservative_anchor = heavy_lowest.element
@@ -109,18 +127,39 @@ def compute_structural_strikes(
         aggressive_raw = heavy_highest.price - buffers["aggressive"] * atr_14
         aggressive_anchor = heavy_highest.element
         anchor_kind = "heavy_element"
-    else:  # "C" — híbrido zona/heavy
-        if heavy_lowest.price <= zone.lower_bound:
-            conservative_anchor = heavy_lowest.element
-            conservative_base = heavy_lowest.price
-        else:
-            conservative_anchor = "zone_lower_bound"
-            conservative_base = zone.lower_bound
+    elif variant == "C":  # híbrido zona/heavy
+        conservative_base, conservative_anchor = _min_base_anchor(zone, heavy_lowest)
         conservative_raw = conservative_base - buffers["conservative"] * atr_14
         natural_raw = zone.lower_bound - buffers["natural"] * atr_14
         aggressive_raw = zone.center_price - buffers["aggressive"] * atr_14
         aggressive_anchor = "zone_center_price"
         anchor_kind = "zone_bound"
+    elif variant == "D":  # escalonado por ATR desde lower_bound, sin usar heavy
+        conservative_raw = zone.lower_bound - buffers["conservative"] * atr_14
+        natural_raw = zone.lower_bound - buffers["natural"] * atr_14
+        aggressive_raw = zone.lower_bound - buffers["aggressive"] * atr_14
+        conservative_anchor = "zone_lower_bound"
+        aggressive_anchor = "zone_lower_bound"
+        anchor_kind = "zone_bound"
+    elif variant == "E":  # anclado a min(lower_bound, heavy_lowest), los 3 niveles
+        base, base_anchor = _min_base_anchor(zone, heavy_lowest)
+        conservative_raw = base - buffers["conservative"] * atr_14
+        natural_raw = base - buffers["natural"] * atr_14
+        aggressive_raw = base - buffers["aggressive"] * atr_14
+        conservative_anchor = base_anchor
+        aggressive_anchor = base_anchor
+        anchor_kind = "heavy_element" if base_anchor != "zone_lower_bound" else "zone_bound"
+    else:  # "F" — híbrido zona/heavy con piso duro; natural es un min de dos anclas distintas
+        base, base_anchor = _min_base_anchor(zone, heavy_lowest)
+        conservative_raw = base - buffers["conservative"] * atr_14
+        aggressive_raw = base - buffers["aggressive"] * atr_14
+        natural_raw = min(
+            zone.lower_bound - STRUCTURAL_STRIKE_F_NATURAL_LOWER_BOUND_ATR * atr_14,
+            heavy_lowest.price - STRUCTURAL_STRIKE_F_NATURAL_HEAVY_ATR * atr_14,
+        )
+        conservative_anchor = base_anchor
+        aggressive_anchor = base_anchor
+        anchor_kind = "heavy_element" if base_anchor != "zone_lower_bound" else "zone_bound"
 
     grid_unit = _grid_for_currency(currency, spot)
     conservative = _floor_to_grid(conservative_raw, grid_unit)

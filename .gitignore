@@ -55,3 +55,6 @@ logs/
 
 # Pages bundle temporal (regenerable por publish_pages)
 docs-build/
+
+# Scripts de diagnóstico temporales, no versionados
+scratch/

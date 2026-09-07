@@ -255,6 +255,8 @@ class TestBodyReclaim:
 
 class TestBearishBreakdown:
     def test_engulfing_bajista_detects(self) -> None:
+        # Este mismo cuerpo también satisface dark_cloud (umbral más laxo): confirma que
+        # la exclusividad mutua (fix post-tanda-1) deja pasar SOLO engulfing, el más fuerte.
         ohlcv = make_ohlcv(
             opens=[97.0, 100.0],
             highs=[100.2, 100.3],
@@ -264,7 +266,8 @@ class TestBearishBreakdown:
         atr = make_atr(ohlcv, 1.0)
         signals = detect_bearish_breakdown(ohlcv, atr, ZONE)
         kinds = {s.kind for s in signals}
-        assert "bearish_engulfing" in kinds
+        assert kinds == {"bearish_engulfing"}
+        assert len(signals) == 1  # una sola señal por barra, no dos
         assert all(s.direction == "bearish" for s in signals)
 
     def test_dark_cloud_aislado_detects(self) -> None:
@@ -283,30 +286,32 @@ class TestBearishBreakdown:
         assert "bearish_engulfing" not in kinds
 
     def test_momentum_2_1x_detecta(self) -> None:
+        # i-1,i-2,i-3 todas ROJAS: bloquea el guard `prev_close >= prev_open` de
+        # engulfing/dark_cloud (fix post-tanda-1) y aisla el multiplicador de momentum puro.
         zone_wide = make_zone(90.0, 105.0)
         ohlcv = make_ohlcv(
-            opens=[100.0, 101.0, 102.0, 103.0],
-            highs=[101.1, 102.1, 103.1, 103.2],
-            lows=[99.8, 100.8, 101.8, 100.5],
-            closes=[101.0, 102.0, 103.0, 100.9],  # body=2.1, avg previo=1.0 -> 2.1x
+            opens=[104.0, 103.0, 102.0, 101.0],
+            highs=[104.2, 103.2, 102.2, 101.2],
+            lows=[102.8, 101.8, 100.8, 98.7],
+            closes=[103.0, 102.0, 101.0, 98.9],  # body=2.1, avg previo (rojas)=1.0 -> 2.1x
         )
         atr = make_atr(ohlcv, 1.0)
         signals = detect_bearish_breakdown(ohlcv, atr, zone_wide, lookback_bars=1)
         kinds = {s.kind for s in signals}
-        assert "bearish_momentum" in kinds
+        assert kinds == {"bearish_momentum"}
 
     def test_momentum_1_9x_rechaza(self) -> None:
         zone_wide = make_zone(90.0, 105.0)
         ohlcv = make_ohlcv(
-            opens=[100.0, 101.0, 102.0, 103.0],
-            highs=[101.1, 102.1, 103.1, 103.2],
-            lows=[99.8, 100.8, 101.8, 100.9],
-            closes=[101.0, 102.0, 103.0, 101.1],  # body=1.9, avg previo=1.0 -> 1.9x
+            opens=[104.0, 103.0, 102.0, 101.0],
+            highs=[104.2, 103.2, 102.2, 101.2],
+            lows=[102.8, 101.8, 100.8, 98.9],
+            closes=[103.0, 102.0, 101.0, 99.1],  # body=1.9, avg previo (rojas)=1.0 -> 1.9x
         )
         atr = make_atr(ohlcv, 1.0)
         signals = detect_bearish_breakdown(ohlcv, atr, zone_wide, lookback_bars=1)
-        kinds = {s.kind for s in signals}
-        assert "bearish_momentum" not in kinds
+        # i-1 roja bloquea engulfing/dark_cloud; 1.9x < umbral 2.0 -> ninguna señal.
+        assert signals == []
 
     def test_vela_bajista_por_encima_de_zona_rechaza_por_gate(self) -> None:
         # Patron fuerte (engulfing-shaped) pero close=102 > zone.upper_bound=100 -> gate rechaza.

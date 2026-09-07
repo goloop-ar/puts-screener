@@ -291,6 +291,11 @@ def detect_bearish_breakdown(
     Gate de contexto distinto al de los detectores alcistas: la vela debe cerrar dentro o
     por debajo de la zona (`close <= zone.upper_bound`). Una vela bajista por encima de la
     zona no la está perforando.
+
+    Exclusividad mutua (fix post-tanda-1): dark_cloud contiene matemáticamente a engulfing
+    (su umbral es más laxo — cualquier cierre que satisface engulfing satisface dark_cloud).
+    Por barra se emite UNA sola señal, la más fuerte: engulfing > dark_cloud > momentum. Sin
+    esto, atribuir poder predictivo por kind en el backtest queda contaminado.
     """
     if ohlcv.empty or atr.empty:
         return []
@@ -311,7 +316,7 @@ def detect_bearish_breakdown(
         if curr_close > zone.upper_bound:
             continue
 
-        kinds_hit: list[str] = []
+        candidates: list[tuple[int, str]] = []
 
         prev = _geometry_at(ohlcv, atr, bar - 1)
         if prev is not None:
@@ -323,9 +328,9 @@ def detect_bearish_breakdown(
                     and curr.body_atr >= BEARISH_ENGULFING_MIN_BODY_ATR
                     and curr_close < prev_open
                 ):
-                    kinds_hit.append("bearish_engulfing")
+                    candidates.append((3, "bearish_engulfing"))
                 if curr_close < prev_open + 0.5 * prev.body:
-                    kinds_hit.append("bearish_dark_cloud")
+                    candidates.append((2, "bearish_dark_cloud"))
 
         prev1 = prev
         prev2 = _geometry_at(ohlcv, atr, bar - 2)
@@ -333,28 +338,28 @@ def detect_bearish_breakdown(
         if prev1 is not None and prev2 is not None and prev3 is not None:
             avg_body = (prev1.body + prev2.body + prev3.body) / 3.0
             if avg_body > 0 and curr.body >= BEARISH_MOMENTUM_BODY_MULTIPLIER * avg_body:
-                kinds_hit.append("bearish_momentum")
+                candidates.append((1, "bearish_momentum"))
 
-        if not kinds_hit:
+        if not candidates:
             continue
+        _, kind = max(candidates, key=lambda c: c[0])
 
         atr_val = _atr_at(atr, ohlcv.index[bar])
         in_zone, distance_atr = _zone_proximity(curr_close, zone, atr_val)
 
-        for kind in kinds_hit:
-            signals.append(
-                CandleSignal(
-                    kind=kind,  # type: ignore[arg-type]
-                    direction="bearish",
-                    bar_date=ohlcv.index[bar],
-                    bars_ago=bars_ago,
-                    body_atr=curr.body_atr,
-                    lower_wick_ratio=curr.lower_wick_ratio,
-                    upper_wick_ratio=curr.upper_wick_ratio,
-                    in_zone=in_zone,
-                    distance_to_zone_atr=distance_atr,
-                )
+        signals.append(
+            CandleSignal(
+                kind=kind,  # type: ignore[arg-type]
+                direction="bearish",
+                bar_date=ohlcv.index[bar],
+                bars_ago=bars_ago,
+                body_atr=curr.body_atr,
+                lower_wick_ratio=curr.lower_wick_ratio,
+                upper_wick_ratio=curr.upper_wick_ratio,
+                in_zone=in_zone,
+                distance_to_zone_atr=distance_atr,
             )
+        )
     return signals
 
 

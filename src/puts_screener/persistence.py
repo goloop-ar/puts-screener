@@ -14,10 +14,12 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
+from puts_screener.candle_patterns import has_bearish_kind, has_bullish_kind
+from puts_screener.config_reports import STRUCTURAL_STRIKE_PRODUCTION_VARIANT
 from puts_screener.models_final import FinalCandidate
 from puts_screener.models_screening import ScreenedCandidate
 from puts_screener.models_support import SupportedCandidate, SupportLevel, SupportZone
-from puts_screener.strikes import compute_heuristic_strikes
+from puts_screener.strike_placement import compute_structural_strikes
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +200,15 @@ _CANDIDATE_MIGRATION_COLUMNS: dict[str, str] = {
     "composite_label": "TEXT DEFAULT ''",  # "Régimen: Trigger primario [+ divergencia]"
     "wheel_candidate": "INTEGER DEFAULT 0",  # reservado para iteraciones futuras
     "trigger_metadata_json": "TEXT DEFAULT '{}'",  # metadata por trigger (serializada)
+    # spec 11 — confirmación por velas (anotación informativa, D11.12: peso 0.0, no gatea)
+    "candle_signals_json": "TEXT DEFAULT '[]'",
+    "candle_bullish_confirmation": "INTEGER DEFAULT 0",
+    "candle_bearish_breakdown": "INTEGER DEFAULT 0",
+    # spec 11 — strikes estructurales (D11.11: variante F reemplaza el heurístico)
+    "strike_variant": "TEXT",  # NULL = heurístico legacy (runs pre-tanda-3); "F" = estructural
+    "strike_anchor_kind": "TEXT",
+    "strike_aggressive_anchor": "TEXT",
+    "strike_conservative_anchor": "TEXT",
 }
 
 # Columnas agregadas a `runs` por specs posteriores. Misma migración idempotente que candidates.
@@ -401,18 +412,17 @@ def save_support_analysis(
                         reason,
                     ),
                 )
-            # Strikes heurísticos derivados de la best_zone (spec 07). Recomputados acá para que
-            # la persistencia no dependa del dict del template; costo despreciable. NULL si no
-            # hay best_zone (no pasó Paso 2).
+            # Strikes estructurales (spec 11, D11.11) derivados de la best_zone. Recomputados acá
+            # para que la persistencia no dependa del dict del template; costo despreciable. NULL
+            # si no hay best_zone (no pasó Paso 2).
             best = sc.analysis.best_zone
             if best is not None:
-                strikes = compute_heuristic_strikes(
-                    zone_lower_bound=best.lower_bound,
-                    zone_upper_bound=best.upper_bound,
-                    zone_center_price=best.center_price,
-                    spot=sc.screened.spot,
-                    atr_14=sc.screened.atr_14,
-                    currency=sc.screened.profile.currency or "USD",
+                strikes = compute_structural_strikes(
+                    best,
+                    sc.screened.spot,
+                    sc.screened.atr_14,
+                    sc.screened.profile.currency or "USD",
+                    variant=STRUCTURAL_STRIKE_PRODUCTION_VARIANT,
                 )
                 s_agg, s_nat, s_con, s_grid = (
                     strikes.aggressive,
@@ -420,12 +430,22 @@ def save_support_analysis(
                     strikes.conservative,
                     strikes.grid_unit,
                 )
+                s_variant = strikes.variant
+                s_anchor_kind = strikes.anchor_kind
+                s_agg_anchor = strikes.aggressive_anchor
+                s_con_anchor = strikes.conservative_anchor
             else:
                 s_agg = s_nat = s_con = s_grid = None
+                s_variant = s_anchor_kind = s_agg_anchor = s_con_anchor = None
+
+            candle_signals = sc.screened.candle_signals
             conn.execute(
                 "UPDATE candidates SET pasa_paso_2 = ?, momentum_signals_json = ?, "
                 "strike_aggressive = ?, strike_natural = ?, strike_conservative = ?, "
-                "strike_grid_unit = ? "
+                "strike_grid_unit = ?, strike_variant = ?, strike_anchor_kind = ?, "
+                "strike_aggressive_anchor = ?, strike_conservative_anchor = ?, "
+                "candle_signals_json = ?, candle_bullish_confirmation = ?, "
+                "candle_bearish_breakdown = ? "
                 "WHERE run_id = ? AND ticker = ?",
                 (
                     1 if sc.pasa_paso_2 else 0,
@@ -434,6 +454,13 @@ def save_support_analysis(
                     s_nat,
                     s_con,
                     s_grid,
+                    s_variant,
+                    s_anchor_kind,
+                    s_agg_anchor,
+                    s_con_anchor,
+                    json.dumps(list(candle_signals)),
+                    1 if has_bullish_kind(candle_signals) else 0,
+                    1 if has_bearish_kind(candle_signals) else 0,
                     run_id,
                     ticker,
                 ),

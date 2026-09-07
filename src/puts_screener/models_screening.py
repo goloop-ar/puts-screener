@@ -85,6 +85,10 @@ class ScreenedCandidate:
     wheel_candidate: bool = False
     trigger_metadata_json: str = "{}"
 
+    # Confirmación por velas (spec 11): kinds detectados por analyze_candles sobre la best_zone,
+    # para persistencia/reporte. Anotación informativa (peso 0.0, D11.12) — no filtra ni gatea.
+    candle_signals: tuple[str, ...] = ()
+
     # Metadatos
     fetched_at: datetime = field(default_factory=datetime.now)
     errors: list[str] = field(default_factory=list)

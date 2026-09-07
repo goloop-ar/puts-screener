@@ -17,6 +17,7 @@ from puts_screener.config_reports import (
     REPORT_LATEST_FILENAME,
     REPORT_OUTPUT_DIR,
     SCORE_TIER_LABELS,
+    STRUCTURAL_STRIKE_PRODUCTION_VARIANT,
 )
 from puts_screener.config_supports import ELEMENT_WEIGHTS
 from puts_screener.formatting import format_price
@@ -24,12 +25,43 @@ from puts_screener.macro_calendar import MacroEvent
 from puts_screener.models_final import FinalCandidate
 from puts_screener.narrative import build_narrative
 from puts_screener.reports_csv import element_label, sort_final_candidates
-from puts_screener.strikes import compute_heuristic_strikes
+from puts_screener.strike_placement import compute_structural_strikes
 
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
 _TEMPLATE_NAME = "report.html.j2"
+
+# spec 11 — label legible por CandleKind, para la sección informativa de la card.
+_CANDLE_KIND_LABELS: dict[str, str] = {
+    "wick_rejection": "Rechazo por mecha",
+    "body_reclaim_piercing": "Reclamo de cuerpo (piercing)",
+    "body_reclaim_engulfing": "Reclamo de cuerpo (engulfing)",
+    "body_reclaim_morning_star": "Reclamo de cuerpo (morning star)",
+    "bearish_engulfing": "Engulfing bajista",
+    "bearish_dark_cloud": "Dark cloud bajista",
+    "bearish_momentum": "Vela de momentum bajista",
+}
+
+# Pseudo-anclas de compute_structural_strikes que no son un SupportLevel real.
+_ANCHOR_PSEUDO_PHRASES: dict[str, str] = {
+    "zone_lower_bound": "debajo del piso de la zona",
+    "zone_center_price": "en el centro de la zona",
+}
+
+
+def _candle_kind_label(kind: str) -> str:
+    return _CANDLE_KIND_LABELS.get(kind, kind.replace("_", " ").capitalize())
+
+
+def _anchor_phrase(anchor: str | None) -> str:
+    """Frase legible del ancla de un strike, ej. 'debajo de SMA200W' o 'debajo del piso de la
+    zona'. None (fallback_atr) → frase explícita de que no hay ancla estructural."""
+    if anchor is None:
+        return "por ATR (zona sin anclas estructurales)"
+    if anchor in _ANCHOR_PSEUDO_PHRASES:
+        return _ANCHOR_PSEUDO_PHRASES[anchor]
+    return f"debajo de {element_label(anchor)}"
 
 
 def _format_candidate(fc: FinalCandidate) -> dict:
@@ -58,14 +90,14 @@ def _format_candidate(fc: FinalCandidate) -> dict:
     tier = zone.score_tier
     tier_stars, tier_label = SCORE_TIER_LABELS[tier]
 
-    # Strikes heurísticos + mini-chart SVG (spec 07). El OHLCV ya vive en screened (sin re-fetch).
-    strikes = compute_heuristic_strikes(
-        zone_lower_bound=zone.lower_bound,
-        zone_upper_bound=zone.upper_bound,
-        zone_center_price=zone.center_price,
-        spot=screened.spot,
-        atr_14=screened.atr_14,
-        currency=currency,
+    # Strikes estructurales (spec 11, D11.11) + mini-chart SVG. El OHLCV ya vive en screened
+    # (sin re-fetch).
+    strikes = compute_structural_strikes(
+        zone,
+        screened.spot,
+        screened.atr_14,
+        currency,
+        variant=STRUCTURAL_STRIKE_PRODUCTION_VARIANT,
     )
     chart_svg = render_mini_chart_svg(
         ohlcv_daily=screened.ohlcv_daily,
@@ -120,9 +152,15 @@ def _format_candidate(fc: FinalCandidate) -> dict:
         "strike_aggressive_formatted": format_price(strikes.aggressive, currency),
         "strike_natural_formatted": format_price(strikes.natural, currency),
         "strike_conservative_formatted": format_price(strikes.conservative, currency),
+        "strike_aggressive_anchor_phrase": _anchor_phrase(strikes.aggressive_anchor),
+        "strike_conservative_anchor_phrase": _anchor_phrase(strikes.conservative_anchor),
         "chart_svg": chart_svg,
         "chart_placeholder": "" if chart_svg else "Histórico insuficiente para chart",
         "narrative_html": build_narrative(fc),
+        # spec 11 — confirmación por velas: anotación informativa, sin destaque (D11.12).
+        "candle_signals": [
+            {"kind": k, "label": _candle_kind_label(k)} for k in screened.candle_signals
+        ],
     }
 
 

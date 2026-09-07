@@ -73,6 +73,12 @@
     }
     .momentum h4 { margin: 0 0 0.3rem; font-size: 0.85rem; color: var(--muted); }
     .momentum ul { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
+    .candles {
+      margin-top: 0.7rem; background: #eef1f5; border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.5rem 0.75rem;
+    }
+    .candles h4 { margin: 0 0 0.3rem; font-size: 0.85rem; color: var(--muted); }
+    .candles ul { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
     .tier { margin: 0.2rem 0 0.05rem; }
     .tier-stars { font-size: 1.3rem; letter-spacing: 1px; }
     .tier-label { color: var(--muted); font-size: 0.85rem; margin-left: 0.4rem; }
@@ -162,6 +168,12 @@
     .strikes-banner .dot.aggressive { background: #dc2626; }
     .strikes-banner .dot.natural { background: #f97316; }
     .strikes-banner .dot.conservative { background: #16a34a; }
+    .strikes-banner .strike-anchor {
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 0.78rem;
+      margin-left: 0.15rem;
+    }
     .strikes-banner .yield-note {
       color: var(--muted);
       font-size: 0.78rem;
@@ -276,9 +288,9 @@
         <div>
           <span class="strikes-title">Strikes sugeridos</span>
           <div class="strikes-list">
-            <span class="strike"><span class="dot aggressive"></span>Aggressive {{ c.strike_aggressive_formatted }}</span>
+            <span class="strike"><span class="dot aggressive"></span>Aggressive {{ c.strike_aggressive_formatted }}<span class="strike-anchor">({{ c.strike_aggressive_anchor_phrase }})</span></span>
             <span class="strike"><span class="dot natural"></span>Natural {{ c.strike_natural_formatted }}</span>
-            <span class="strike"><span class="dot conservative"></span>Conservative {{ c.strike_conservative_formatted }}</span>
+            <span class="strike"><span class="dot conservative"></span>Conservative {{ c.strike_conservative_formatted }}<span class="strike-anchor">({{ c.strike_conservative_anchor_phrase }})</span></span>
           </div>
         </div>
         <span class="yield-note">verificar yield ≥1.5%/mes en broker</span>
@@ -301,6 +313,17 @@
         <ul>
           {% for signal in c.momentum_signals %}
           <li>Divergencia ({{ signal }})</li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+
+      {% if c.candle_signals %}
+      <section class="candles">
+        <h4>Confirmación por velas (informativo)</h4>
+        <ul>
+          {% for signal in c.candle_signals %}
+          <li>{{ signal.label }}</li>
           {% endfor %}
         </ul>
       </section>

@@ -5,11 +5,12 @@ los campos ya disponibles del FinalCandidate. Función pura: no persiste, no con
 disco. Pensada para inyectarse en el template con |safe (Tanda 4).
 """
 
+from puts_screener.config_reports import STRUCTURAL_STRIKE_PRODUCTION_VARIANT
 from puts_screener.config_supports import ELEMENT_WEIGHTS, HEAVY_ELEMENT_WEIGHT_THRESHOLD
 from puts_screener.formatting import format_price
 from puts_screener.models_final import FinalCandidate
 from puts_screener.models_support import SupportZone
-from puts_screener.strikes import compute_heuristic_strikes
+from puts_screener.strike_placement import compute_structural_strikes
 
 _TIPO_DESCRIPTION: dict[str, str] = {
     "T1": "tendencia alcista intacta con pullback a soporte",
@@ -156,13 +157,12 @@ def _narrative_what_to_watch(fc: FinalCandidate) -> str:
 
     # Recomputa los strikes acá (en vez de recibirlos del dict de _format_candidate, Tanda 4) para
     # que la narrativa sea función pura del candidato y testeable sin la capa de render.
-    strikes = compute_heuristic_strikes(
-        zone.lower_bound,
-        zone.upper_bound,
-        zone.center_price,
+    strikes = compute_structural_strikes(
+        zone,
         screened.spot,
         screened.atr_14,
         currency,
+        variant=STRUCTURAL_STRIKE_PRODUCTION_VARIANT,
     )
     conservative_str = format_price(strikes.conservative, currency)
     sentences = [

@@ -11,14 +11,16 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from puts_screener.candle_patterns import has_bearish_kind, has_bullish_kind
 from puts_screener.config_reports import (
     REPORT_FILENAME_PATTERN,
     REPORT_LATEST_FILENAME,
     REPORT_OUTPUT_DIR,
+    STRUCTURAL_STRIKE_PRODUCTION_VARIANT,
     TYPE_PRIORITY,
 )
 from puts_screener.models_final import FinalCandidate
-from puts_screener.strikes import compute_heuristic_strikes
+from puts_screener.strike_placement import compute_structural_strikes
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,14 @@ CSV_COLUMNS: tuple[str, ...] = (
     "primary_trigger",
     "triggers",
     "wheel_candidate",
+    # spec 11: confirmación por velas (anotación informativa) + anclas de los strikes
+    "candle_signals",
+    "candle_bullish_confirmation",
+    "candle_bearish_breakdown",
+    "strike_variant",
+    "strike_anchor_kind",
+    "strike_aggressive_anchor",
+    "strike_conservative_anchor",
 )
 
 
@@ -127,14 +137,14 @@ def _build_row(fc: FinalCandidate) -> dict:
     zone = fc.supported.analysis.best_zone
     be = fc.binary_events
     # _build_row solo se llama sobre passes_all_steps → zone no es None (spec 07).
-    strikes = compute_heuristic_strikes(
-        zone_lower_bound=zone.lower_bound,
-        zone_upper_bound=zone.upper_bound,
-        zone_center_price=zone.center_price,
-        spot=screened.spot,
-        atr_14=screened.atr_14,
-        currency=profile.currency or "USD",
+    strikes = compute_structural_strikes(
+        zone,
+        screened.spot,
+        screened.atr_14,
+        profile.currency or "USD",
+        variant=STRUCTURAL_STRIKE_PRODUCTION_VARIANT,
     )
+    candle_signals = screened.candle_signals
 
     row = {
         "ticker": fc.ticker,
@@ -186,6 +196,13 @@ def _build_row(fc: FinalCandidate) -> dict:
         "primary_trigger": screened.primary_trigger or "",
         "triggers": "|".join(screened.triggers),
         "wheel_candidate": 1 if screened.wheel_candidate else 0,
+        "candle_signals": "|".join(candle_signals),
+        "candle_bullish_confirmation": 1 if has_bullish_kind(candle_signals) else 0,
+        "candle_bearish_breakdown": 1 if has_bearish_kind(candle_signals) else 0,
+        "strike_variant": strikes.variant,
+        "strike_anchor_kind": strikes.anchor_kind,
+        "strike_aggressive_anchor": strikes.aggressive_anchor,
+        "strike_conservative_anchor": strikes.conservative_anchor,
     }
     # None → "" (no "None"), explícito para no depender del comportamiento del módulo csv.
     return {key: ("" if value is None else value) for key, value in row.items()}

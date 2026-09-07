@@ -395,3 +395,19 @@ def analyze_candles(
         has_bearish_breakdown=len(breakdown_signals) > 0,
         strongest_bullish=strongest_bullish,
     )
+
+
+_BEARISH_KIND_PREFIX = "bearish_"
+# Todo CandleKind bajista arranca con este prefijo (bearish_engulfing/dark_cloud/momentum); los
+# alcistas (wick_rejection, body_reclaim_*) no. Deriva los flags booleanos de persistencia/reporte
+# a partir de `ScreenedCandidate.candle_signals` sin tener que re-correr analyze_candles.
+
+
+def has_bullish_kind(kinds: tuple[str, ...]) -> bool:
+    """True si `kinds` (ej. `candle_signals`) contiene algún kind alcista."""
+    return any(not k.startswith(_BEARISH_KIND_PREFIX) for k in kinds)
+
+
+def has_bearish_kind(kinds: tuple[str, ...]) -> bool:
+    """True si `kinds` (ej. `candle_signals`) contiene algún kind bajista."""
+    return any(k.startswith(_BEARISH_KIND_PREFIX) for k in kinds)

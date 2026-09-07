@@ -4,6 +4,7 @@ import json
 import sqlite3
 from datetime import date, datetime
 
+from puts_screener.config_reports import STRUCTURAL_STRIKE_PRODUCTION_VARIANT
 from puts_screener.macro_calendar import MacroEvent
 from puts_screener.persistence import (
     _BINARY_EVENT_COLUMNS,
@@ -11,7 +12,7 @@ from puts_screener.persistence import (
     save_run,
     save_support_analysis,
 )
-from puts_screener.strikes import compute_heuristic_strikes
+from puts_screener.strike_placement import compute_structural_strikes
 
 
 def _persist(final_candidates, db):
@@ -138,15 +139,18 @@ def test_persist_candidate_with_strikes(tmp_path, final_candidate_factory):
     save_support_analysis(run_id, [fc.supported], db_path=db)
 
     row = _read(db, run_id, "STK")
-    expected = compute_heuristic_strikes(
-        zone_lower_bound=zone.lower_bound,
-        zone_upper_bound=zone.upper_bound,
-        zone_center_price=zone.center_price,
-        spot=screened.spot,
-        atr_14=screened.atr_14,
-        currency="USD",
+    expected = compute_structural_strikes(
+        zone,
+        screened.spot,
+        screened.atr_14,
+        "USD",
+        variant=STRUCTURAL_STRIKE_PRODUCTION_VARIANT,
     )
     assert row["strike_aggressive"] == expected.aggressive
     assert row["strike_natural"] == expected.natural
     assert row["strike_conservative"] == expected.conservative
     assert row["strike_grid_unit"] == expected.grid_unit
+    assert row["strike_variant"] == expected.variant
+    assert row["strike_anchor_kind"] == expected.anchor_kind
+    assert row["strike_aggressive_anchor"] == expected.aggressive_anchor
+    assert row["strike_conservative_anchor"] == expected.conservative_anchor

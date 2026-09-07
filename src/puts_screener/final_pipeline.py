@@ -14,6 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 from puts_screener.binary_events import BinaryEventsReport, check_binary_events, check_macro_events
+from puts_screener.candle_patterns import analyze_candles
 from puts_screener.classification_v2 import classify_candidate
 from puts_screener.indicators import atr_series, rsi_daily_series
 from puts_screener.macro_calendar import MacroEvent, load_macro_calendar
@@ -79,10 +80,11 @@ def _classify_supported(
     supported: list[SupportedCandidate],
     today_ts: pd.Timestamp,
 ) -> None:
-    """Aplica classify_candidate sobre los SupportedCandidate que pasaron Paso 2.
+    """Aplica classify_candidate + analyze_candles sobre los SupportedCandidate que pasaron Paso 2.
 
-    Muta in-place el `screened` con regime/triggers/primary/label/tipo (vía
-    classification) + trigger_metadata_json. Errores aislados por candidato.
+    Muta in-place el `screened` con regime/triggers/primary/label/tipo (vía classification) +
+    trigger_metadata_json, y con candle_signals (spec 11: confirmación por velas sobre la
+    best_zone, anotación informativa D11.12 — no filtra ni gatea). Errores aislados por candidato.
     """
     for sc in supported:
         if not sc.pasa_paso_2:
@@ -120,6 +122,11 @@ def _classify_supported(
                 justificacion=result.composite_label,
                 matches_multiple=[],
             )
+            if best is not None:
+                candle_analysis = analyze_candles(ohlcv, atr, best)
+                screened.candle_signals = tuple(
+                    sorted({s.kind for s in candle_analysis.signals})
+                )
         except Exception as exc:  # noqa: BLE001 — aislamiento por candidato
             msg = f"classify_candidate: {type(exc).__name__}: {str(exc)[:100]}"
             logger.warning("[%s] %s", screened.ticker, msg)

@@ -23,7 +23,7 @@ from puts_screener.config_reports import (
     MINI_CHART_Y_EXTRA_PCT,
 )
 from puts_screener.formatting import format_price
-from puts_screener.models_reports import HeuristicStrikes
+from puts_screener.models_reports import HeuristicStrikes, StructuralStrikes
 
 _MONTH_ABBR_ES: dict[int, str] = {
     1: "ene",
@@ -60,7 +60,7 @@ def render_mini_chart_svg(
     ohlcv_daily: pd.DataFrame,
     zone_lower_bound: float,
     zone_upper_bound: float,
-    strikes: HeuristicStrikes,
+    strikes: HeuristicStrikes | StructuralStrikes,
     currency: str,
 ) -> str:
     """SVG inline con precio diario, banda de zona y 3 strikes punteados.
@@ -72,7 +72,7 @@ def render_mini_chart_svg(
         ohlcv_daily: OHLCV diario con índice de fechas y columna "Close".
         zone_lower_bound: borde inferior de la best_zone.
         zone_upper_bound: borde superior de la best_zone.
-        strikes: strikes heurísticos a dibujar como líneas horizontales.
+        strikes: strikes (heurísticos o estructurales) a dibujar como líneas horizontales.
         currency: divisa para formatear los labels del eje Y.
 
     Returns:

@@ -98,6 +98,11 @@ STRUCTURAL_STRIKE_BUFFERS_ATR: dict[str, dict[str, float]] = {
     "F": {"conservative": 3.0, "aggressive": 0.25},  # base: min(lb, heavy_lowest)
 }
 
+STRUCTURAL_STRIKE_PRODUCTION_VARIANT = "F"
+"""Variante ganadora del backtest de spec 11 tanda 2 (D11.11): la única que cumple los 3 targets
+de §3.5 a 45d (aggressive 70.0%, natural 80.4%, conservative 89.0% post-calibración D11.12).
+Reemplaza a `compute_heuristic_strikes` en el camino productivo."""
+
 STRUCTURAL_STRIKE_F_NATURAL_LOWER_BOUND_ATR: float = 1.0
 STRUCTURAL_STRIKE_F_NATURAL_HEAVY_ATR: float = 0.5
 

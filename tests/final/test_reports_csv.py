@@ -21,24 +21,32 @@ def test_csv_created_with_expected_name(tmp_path, final_candidate_factory):
     assert path.exists()
 
 
-def test_csv_has_48_columns_in_exact_order(tmp_path, final_candidate_factory):
-    # spec 10: tipo_T → composite_label (mismo slot), + 4 columnas al final
-    # (regime, primary_trigger, triggers, wheel_candidate). Total 48.
+def test_csv_has_55_columns_in_exact_order(tmp_path, final_candidate_factory):
+    # spec 10: tipo_T → composite_label (mismo slot), + 4 columnas (regime, primary_trigger,
+    # triggers, wheel_candidate). spec 11: + 7 columnas de señales de vela y anclas. Total 55.
     path = write_csv_report([final_candidate_factory()], output_dir=tmp_path)
     fieldnames, _ = _read_csv(path)
     assert fieldnames == list(CSV_COLUMNS)
-    assert len(fieldnames) == 48
+    assert len(fieldnames) == 55
     assert fieldnames[5] == "composite_label"  # spec 10: reemplaza tipo_T
     assert fieldnames[39] == "universes"  # columna 40
     assert fieldnames[40] == "momentum_signals"  # columna 41
     assert fieldnames[41] == "strike_aggressive"  # columna 42 (spec 07)
     assert fieldnames[42] == "strike_natural"  # columna 43
     assert fieldnames[43] == "strike_conservative"  # columna 44
-    # spec 10: 4 columnas nuevas al final.
+    # spec 10: 4 columnas.
     assert fieldnames[44] == "regime"
     assert fieldnames[45] == "primary_trigger"
     assert fieldnames[46] == "triggers"
     assert fieldnames[47] == "wheel_candidate"
+    # spec 11: 7 columnas nuevas al final.
+    assert fieldnames[48] == "candle_signals"
+    assert fieldnames[49] == "candle_bullish_confirmation"
+    assert fieldnames[50] == "candle_bearish_breakdown"
+    assert fieldnames[51] == "strike_variant"
+    assert fieldnames[52] == "strike_anchor_kind"
+    assert fieldnames[53] == "strike_aggressive_anchor"
+    assert fieldnames[54] == "strike_conservative_anchor"
 
 
 def test_csv_score_formatted_one_decimal(tmp_path, final_candidate_factory):

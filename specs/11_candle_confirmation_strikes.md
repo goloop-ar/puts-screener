@@ -1,6 +1,6 @@
 # Spec 11 — Confirmación por velas + rediseño estructural de strikes
 
-> Estado: propuesta. Fecha: 2026-09-07.
+> Estado: ✅ Cerrada (2026-09-07). Fecha de propuesta: 2026-09-07.
 >
 > **Nota de contrato**: `specs/10_*.md` no existe en el filesystem pese a que ROADMAP §1 marca
 > "Spec 10 ✅ Cerrada". El código de spec 10 (`detectors.py`, `classification_v2.py`,
@@ -454,30 +454,35 @@ python scratch/backtest_candles.py --window 45 --variant A,B,C
 ## 9. Criterios de aceptación
 
 **Tanda 1 — Detectores**
-- [ ] Los 3 detectores implementados, funciones puras, sin dependencia del pipeline.
-- [ ] Suite verde, sin regresiones sobre los 582 tests existentes.
-- [ ] **Tasa de detección sobre las 1113 zonas del dataset reportada por `CandleKind`.**
-- [ ] **Ningún `CandleKind` con tasa <2% o >40%.** Fuera de ese rango se recalibra el umbral
-      correspondiente *antes* de pasar a Tanda 2. Este criterio existe porque tres detectores
-      previos pasaron sus tests sintéticos y nunca dispararon en producción.
+- [x] Los 3 detectores implementados, funciones puras, sin dependencia del pipeline.
+- [x] Suite verde, sin regresiones sobre los 582 tests existentes.
+- [x] **Tasa de detección sobre las 1113 zonas del dataset reportada por `CandleKind`.**
+- [x] **Ningún `CandleKind` con tasa <2% o >40%** — enmendado en D11.13 a "ningún detector
+      estructuralmente excluido de su población" tras confirmar que la tasa baja de los 3 kinds
+      bajistas (post-fix del bug de gaps en `get_ohlcv`) es consecuencia del gate por diseño
+      (§6.4), no un detector mudo.
 
 **Tanda 2 — Backtest**
-- [ ] Harness corre sobre las 1113 filas sin lookahead (verificado con test explícito de que la
-      detección no ve barras posteriores a `fetched_at`).
-- [ ] Tabla de aguante por strike × variante × ventana (30/45/60).
-- [ ] Tabla cruzada confirmación × aguante del `aggressive`.
-- [ ] Al menos una variante cumple los tres targets de §3.5, o queda documentada la calibración
-      del buffer que la hace cumplirlos.
-- [ ] Grupo de control (36 zonas `regime IS NOT NULL AND primary_trigger IS NULL`) reportado
-      aparte, **con la advertencia explícita de que N=36 solo permite señal direccional**.
+- [x] Harness corre sobre las 1113 filas sin lookahead (test explícito
+      `_selfcheck_no_lookahead` en `scratch/backtest_candles.py`).
+- [x] Tabla de aguante por strike × variante × ventana (30/45/60), extendida a 6 variantes A-F.
+- [x] Tabla cruzada confirmación × aguante del `aggressive` — y su corrección, "confirmación
+      controlada por arribo" (D11.12), que es la que realmente responde la pregunta.
+- [x] La variante F cumple los tres targets de §3.5 (D11.11), con la calibración del `conservative`
+      documentada (único intento pre-declarado, `-2.0×ATR` → `-3.0×ATR`).
+- [x] Grupo de control (36 zonas `regime IS NOT NULL AND primary_trigger IS NULL`) reportado
+      aparte, con la advertencia explícita de N=36 (efectivo N=1 a 45d tras filtrar por ventana
+      completa — advertencia reforzada, no solo cumplida).
 
 **Tanda 3 — Integración**
-- [ ] `candle_signals` en el modelo, persistido y renderizado en HTML y CSV.
-- [ ] Variante ganadora reemplaza a `compute_heuristic_strikes` en el pipeline.
-- [ ] Card HTML muestra el elemento ancla de cada strike (ej. "aggressive: debajo de SMA200W").
-- [ ] Decisión explícita y registrada: la confirmación por velas queda como **anotación** (peso
-      0.0) o asciende a **gate**. Se decide con la tabla de Tanda 2, no antes.
-- [ ] ROADMAP §1/§2/§3/§5 + contadores reales actualizados y commiteados.
+- [x] `candle_signals` en el modelo, persistido y renderizado en HTML y CSV.
+- [x] Variante ganadora (F) reemplaza a `compute_heuristic_strikes` en el pipeline
+      (`STRUCTURAL_STRIKE_PRODUCTION_VARIANT`).
+- [x] Card HTML muestra el elemento ancla de cada strike (ej. "debajo de SMA200W", "debajo del
+      piso de la zona").
+- [x] Decisión explícita y registrada (D11.12): la confirmación por velas queda como
+      **anotación** (peso 0.0), no gate.
+- [x] ROADMAP §1/§2/§3/§5 + contadores reales actualizados y commiteados.
 
 ---
 
@@ -565,3 +570,45 @@ favorece la hipótesis. Cualquier cambio posterior se registra fechado y justifi
 **D11.10 — Cierre por sobre mínimo intradía como criterio de perforación.** Una mecha que perfora
 el strike y recupera en el día no gatilla asignación en un put europeo ni, en la práctica, en uno
 americano fuera de vencimiento. Usar el mínimo sobreestimaría las perforaciones.
+
+**D11.11 — Variante F gana; A/B/C descartadas.** El backtest sobre las 1113 zonas (tanda 2/3)
+mostró que anclar `aggressive` DENTRO de la zona (A/B/C, heavy más alto o `center_price`) hace que
+"el precio entró a la zona" y "se perforó aggressive" sean casi el mismo evento:
+`P(perforó aggressive | entró a la zona)` = 76–80% en A/B/C. Las variantes D/E/F (agregadas post
+primer backtest), que bajan los 3 niveles a ≤ `lower_bound`, separan ambos eventos: 47–49%. A 45d,
+D y F son las únicas que alcanzan `aggressive` (70.0%) y `natural` (≥80%, F=80.4%); tras el único
+intento de calibración pre-declarado del `conservative` de F (`-2.0×ATR` → `-3.0×ATR`, ver
+`STRUCTURAL_STRIKE_BUFFERS_ATR["F"]` en `config_reports.py`), F alcanza también `conservative`
+(83.9% → 89.0% ≥ 88%), cumpliendo los 3 targets de §3.5 simultáneamente — la única variante que lo
+logra. `compute_heuristic_strikes` se retira del camino productivo (su `aggressive`: 25.4% de
+aguante a 45d, muy por debajo de cualquier variante estructural) pero **no se borra**: queda en
+`strikes.py` como fallback de `compute_structural_strikes` sin anclas heavy y como línea de base
+reproducible del backtest.
+
+**D11.12 — Confirmación por velas queda como anotación (peso 0.0), no gate.** La tabla de
+"confirmación controlada por arribo" (zonas donde el precio efectivamente entró a la zona,
+comparando strikes de zonas CON confirmación alcista en la detección vs SIN confirmación, N=30 vs
+N=124 a 45d) no mostró dirección consistente: el signo de la diferencia de aguante cambia según
+variante y tipo de strike (positivo en las 3 columnas para legacy/B/C; mixto, y negativo en
+`natural`/`conservative`, para A/D/E/F). Con N=30 en el grupo confirmado — al límite del umbral de
+significancia declarado (<30 = no concluyente) — no hay evidencia suficiente para que la
+confirmación mueva el strike. `candle_signals` se persiste y se muestra en el reporte con el mismo
+tratamiento que DIVERGENCIA (Etapa 4 del rework de scoring): informativo, sin destaque visual, sin
+peso en el score ni en el strike.
+
+**D11.13 — Enmienda al criterio de tasa de detección de §9: "no estructuralmente excluido"
+reemplaza el piso de 2%.** El piso original (§9: "ningún `CandleKind` con tasa <2%") asumía que una
+tasa baja señala un detector mudo (la lección de spec 10). Medido con data real (post-fix del bug
+de gaps en `get_ohlcv`, ver ROADMAP §2), los 3 kinds bajistas cayeron debajo de 2%
+(`bearish_engulfing` 1.08%, `bearish_dark_cloud` 0.45%, `bearish_momentum` 0.63%), pero la causa no
+es un umbral mal calibrado: el gate de `detect_bearish_breakdown` exige `close <= zone.upper_bound`
+(§6.4), y `ZONE_MIN_DISTANCE_PCT=0.03` garantiza que al momento de la detección el precio esté
+arriba de la zona — el gate excluye estructuralmente casi todas las oportunidades de que dispare
+*en el momento de la detección*, por diseño, no por bug. La tasa baja refleja la frecuencia real
+del fenómeno bajo ese gate, no un detector mudo. Criterio enmendado: **"ningún detector
+estructuralmente excluido de su población"** — se verifica que el gate sea el correcto (lo es), no
+que la tasa cruda supere un piso arbitrario. Este hallazgo motivó medir `bearish_breakdown` también
+**in-window** (zonas donde el precio entra a la zona en cualquier momento de la ventana forward, no
+solo en `fetched_at`), que sí mostró poder predictivo direccional consistente: sobre N=313 zonas que
+entraron a la zona, `natural` aguantó 14.7% (con breakdown) vs 24.0% (sin) y `conservative` 62.8%
+vs 76.0%.

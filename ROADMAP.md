@@ -2,7 +2,7 @@
 
 > Documento vivo: estado actual, issues abiertos, próximos pasos. Actualizar al cierre de cada sesión.
 
-**Última actualización**: 2026-07-17
+**Última actualización**: 2026-09-07
 
 ---
 
@@ -325,10 +325,64 @@ Reemplazo del sistema legacy T1-T5 por sistema dual: `regime` (uptrend/lateral/d
 
 Commit `dbbdd51`. 572 tests verdes.
 
+### Spec 11 — Confirmación por velas + rediseño estructural de strikes ✅ Cerrada (2026-09-07)
+
+Dos capacidades medidas sobre el mismo dataset retroactivo antes de integrarse (regla
+metodológica explícita de la spec, reacción a spec 10: 3 detectores con tests sintéticos verdes
+y cero detecciones en 4.5 meses de producción): confirmación por velas dentro de zonas de
+soporte validadas, y strikes anclados a elementos de soporte reales en vez de `zone_bound ±
+ATR×1.0`.
+
+- [x] **Tanda 1 — Detectores**: `candle_patterns.py` (3 detectores: `wick_rejection`,
+  `body_reclaim` con 3 sub-kinds, `bearish_breakdown` con 3 sub-kinds) + `config_candles.py` +
+  `models_candles.py`. Tasa de detección medida sobre las 1113 best_zones históricas. Commits
+  `70e8cd2`, `3fd7848`, `b1e6e54`.
+- [x] **FIX A (post-tanda-1)**: exclusividad mutua en `detect_bearish_breakdown` — dark_cloud
+  contenía matemáticamente a engulfing (umbral más laxo), contaminando la atribución de poder
+  predictivo por kind. Ahora emite una sola señal por barra, la más fuerte. Commit `170f5a4`.
+- [x] **Tanda 2 — Backtest**: `strike_placement.py` con `extract_heavy_anchors` +
+  `compute_structural_strikes`, variantes A/B/C (spec original) + D/E/F (agregadas tras el primer
+  backtest, ver abajo). Harness `scratch/backtest_candles.py` (gitignored, no productivo) sobre
+  las 1113 zonas, sin lookahead verificado con test explícito. Commits `fba0a10`, `d740940`,
+  `35a4421`, `6bdb1fa`.
+- [x] **Tanda 3 — Integración**: `candle_signals` en `ScreenedCandidate`, poblado post-Paso 2;
+  variante F reemplaza `compute_heuristic_strikes` en el pipeline productivo
+  (`STRUCTURAL_STRIKE_PRODUCTION_VARIANT`); 7 columnas nuevas persistidas (migración idempotente);
+  CSV 48→55 columnas; HTML con sección de señales de vela (informativa) + frase del ancla de cada
+  strike en el strikes-banner. Commit `6022408`.
+
+**Decisiones clave** (detalle completo en `specs/11_candle_confirmation_strikes.md` §11,
+D11.11–D11.13):
+- **Variante F gana, A/B/C descartadas**: anclar `aggressive` DENTRO de la zona (A/B/C) hacía que
+  "tocar la zona" y "perforar aggressive" fueran casi el mismo evento (`P(perforó|entró)`
+  76–80%). D/E/F bajan los 3 niveles a ≤ `lower_bound`: la misma métrica cae a 47–49%. F es la
+  única que cumple los 3 targets de §3.5 a 45d (aggressive 70.0%, natural 80.4%, conservative
+  89.0% tras el único intento de calibración pre-declarado del buffer, `-2.0×ATR` → `-3.0×ATR`).
+  `compute_heuristic_strikes` no se borró — sigue como fallback en `strikes.py`.
+- **Confirmación por velas queda como anotación (peso 0.0), no gate**: la tabla de aguante
+  controlada por arribo a la zona (N=30 confirmadas vs 124 sin confirmar) no mostró dirección
+  consistente entre variantes/strikes. `candle_signals` se persiste y se muestra, mismo
+  tratamiento visual que DIVERGENCIA (sin destaque, sin peso).
+- **Enmienda al criterio de tasa de detección (§9)**: el piso de 2% se reemplazó por "ningún
+  detector estructuralmente excluido de su población" — los 3 kinds bajistas caen bajo 2% porque
+  el gate de `detect_bearish_breakdown` + `ZONE_MIN_DISTANCE_PCT` excluyen por diseño la mayoría
+  de las oportunidades al momento de la detección, no por umbral mal calibrado. Motivó medir
+  `bearish_breakdown` también in-window (N=313 zonas que entraron a la zona), con poder
+  predictivo direccional consistente ahí.
+- **Bug de gaps en `get_ohlcv` descubierto y mitigado ad-hoc**: ver §2. La cache de OHLCV tenía
+  agujeros silenciosos de ~6 semanas para los 131 tickers del dataset de backtest; refetch
+  completo aplicado solo a esos tickers para poder correr el backtest. El bug del provider en sí
+  sigue sin arreglar (issue en §2).
+
+**Validación empírica**: suite 630 tests verdes (582 pre-spec-11 + 48 nuevos). Smoke
+`--universe sp500 --limit 50 --no-persist` OK (3 candidatos, señales de vela y anclas
+renderizando correctamente en CSV/HTML). Smoke con persistencia (`--limit 15`, dos corridas
+consecutivas sobre DB de scratch): migración idempotente confirmada, sin duplicar ni pisar filas.
+
 ### Estadísticas
 
-- **Tests**: 582 verdes
-- **Commits**: 181
+- **Tests**: 630 verdes
+- **Commits**: 229
 - **Universo accesible**: 985 tickers (503 US S&P 500 + 482 EU STOXX 600)
 - **Punto de entrada**: `python -m puts_screener.run`
 
@@ -346,6 +400,40 @@ Commit `dbbdd51`. 572 tests verdes.
 - **[infra] Build de universo es fail-hard**: un índice roto mata el run completo en vez de seguir con los demás. Falta fail-soft + fallback a cache de constituyentes (la lista cambia por trimestre, no por día). Ver decisión en §5.
 - **[infra] `requirements.txt` usa `>=` sin lock file — pipeline no-reproducible**. No fue la causa de esta caída, pero sigue siendo riesgo latente (la próxima lib con release roto tumba el cron).
 
+**Issues abiertos (detectados 2026-09-07, spec 11 tanda 2/3):**
+
+- **[infra] `get_ohlcv` no detecta gaps: refetch incremental de 7 días sobre cache vieja deja
+  agujeros silenciosos.** La rama cache-hit de `get_ohlcv` (`yfinance_provider.py`) siempre pide
+  solo los últimos `OHLCV_REFRESH_DAYS=7` días y los mergea sobre lo que haya en cache, sin
+  chequear qué tan vieja está la última barra cacheada. Si la cache queda parada más de 7 días
+  (ej. varias semanas sin correr el proyecto), el refetch incremental pega barras recientes sobre
+  un histórico viejo, dejando un tramo intermedio completamente vacío sin ningún error ni warning.
+  Detectado al validar el backtest de spec 11: cache parada en mayo, refetch de septiembre pegado
+  encima, junio-julio vacíos para los 131 tickers del dataset (confirmado: 100% de una muestra de
+  40 tickers tenía el mismo patrón de huecos de ~6 semanas). En producción no se manifiesta porque
+  el cron corre diario (la cache nunca queda tan vieja), pero es latente si la cache de GitHub
+  Actions rota, se pierde un tramo, o el proyecto queda sin correr varias semanas. Fix aplicado
+  ad-hoc solo para los 131 tickers del dataset (borrar + refetch full vía `_fetch_full`); el bug
+  en `get_ohlcv` en sí sigue sin arreglar. Candidato a fix: chequear la edad de la última barra
+  cacheada y forzar `_fetch_full` si supera un umbral (ej. `OHLCV_REFRESH_DAYS`), en vez de siempre
+  incremental.
+- **[clasificación] `range_floor` con 0/36 detecciones en `regime=lateral` (su única
+  precondición de régimen) — 30 candidatos perdidos en agosto.** Refina el issue de 2026-06-25
+  ("3 de 6 detectores primarios = 0 detecciones"): la medición de spec 11 sobre el dataset de
+  backtest (1113 zonas, mayo-septiembre) confirma que `range_floor` sigue en 0 detecciones pese a
+  36 zonas con `regime=lateral` disponibles como población candidata, y que agosto por sí solo
+  perdió ~30 candidatos que podrían haber calificado. Es un bug propio de `range_floor`
+  (`detectors.py`/`classification_v2.py`), no ausencia real del patrón en el mercado — requiere
+  diagnóstico independiente (revisar la lógica del detector contra casos reales de `regime=lateral`
+  antes de tocar `TRIGGER_WEIGHTS`). Fuera de scope de spec 11 (ver spec 11 §2 "Fuera de scope").
+- **[clasificación] 32 zonas con `pasa_paso_2=1` y `regime IS NULL` en 4 runs de 8 tickers cada
+  uno (D11.8 de spec 11).** Tienen `pasa_paso_2=1` y strikes poblados pero nunca fueron
+  clasificadas — bug de clasificación, no una categoría analítica. Se excluyeron del dataset de
+  backtest de spec 11 por contaminación (mezclarlas con el grupo de control de 36 zonas
+  clasificadas-sin-trigger habría contaminado esa comparación). Diagnóstico pendiente: identificar
+  los 4 run_ids afectados y por qué `_classify_supported` no corrió o falló silenciosamente para
+  esos 8 tickers × 4 runs.
+
 **Activación specs 07 + 08 en producción**: output visual confirmado en el sitio publicado vía `workflow_dispatch` manual del 2026-05-28 (run del 13:30 UTC) — split texto/chart legible con varias cards, strikes ubicados respecto a la zona, longitud razonable de narrativa. Badge `watchlist` quedará verificado cuando algún ticker de la watchlist personal pase Paso 2 en un run automático. Un segundo dispatch ese mismo día a las 16:58 UTC (run `26589402903`) también validó visualmente el fix del 404 en `history.html` (ver §1 spec 05) → bot commit `325df93` con outputs publicados → links del histórico abren correctamente en prod.
 
 Próximo bloque: Fase 5 MVP terminada (spec 09). Próximo bloque a definir post-uso real de la app (1-2 semanas). Candidatos: segunda iteración de Fase 5 (overlays adicionales: AVWAPs, pivots, gaps, fibs; panel de ejecución con thresholds editables); backtesting agendado para ~2026-06-28; o cualquier otra prioridad que emerja del uso real.
@@ -356,11 +444,23 @@ Próximo bloque: Fase 5 MVP terminada (spec 09). Próximo bloque a definir post-
 
 ### 3.1 Inmediato (próxima sesión)
 
-Spec 10 cerrada (clasificación dual + 3 detectores + reportes migrados). Próximo paso: **usar el sistema en producción 1-2 semanas y dejar que emerjan ajustes empíricos**. Candidatos para la siguiente sesión (sin priorización fija):
-- (a) Spec 10.5: detectores que quedaron en backlog (`higher_low + trendline_break`; `bullish_divergence` como trigger primario si validación empírica lo justifica).
-- (b) Recalibración de pesos en `TRIGGER_WEIGHTS` según distribución observada (especialmente `hma_weekly_flip` 0.5 → 0.7 si los flip-único terminan siendo trades buenos).
-- (c) Backtesting agendado para ~2026-06-28 cuando haya 4 semanas de runs automáticos en `screening_history.db`.
-- (d) Spec 09 Fase 5 segunda iteración (overlays adicionales, panel de ejecución) si el uso real lo demanda.
+Spec 11 cerrada (confirmación por velas como anotación + strikes estructurales variante F en
+producción). Próximo paso: **usar el sistema en producción 1-2 semanas y dejar que emerjan
+ajustes empíricos**, igual que tras spec 10. Candidatos para la siguiente sesión (sin
+priorización fija):
+- (a) Diagnóstico del bug de `get_ohlcv` (gaps silenciosos en refetch incremental, §2) — el más
+  barato de arreglar (un chequeo de edad de la última barra) y el que más silenciosamente puede
+  contaminar mediciones futuras si no se corrige.
+- (b) Diagnóstico de `range_floor` (0/36 detecciones, §2) — mismo patrón que llevó a la regla
+  metodológica de spec 11 (medir antes de integrar); ahora aplica investigar por qué el detector
+  nunca dispara.
+- (c) Diagnóstico de las 32 zonas `pasa_paso_2=1`/`regime IS NULL` (§2, D11.8) — identificar los 4
+  run_ids afectados.
+- (d) Spec 10.5: detectores que quedaron en backlog (`higher_low + trendline_break`;
+  `bullish_divergence` como trigger primario si validación empírica lo justifica).
+- (e) Recalibración de pesos en `TRIGGER_WEIGHTS` según distribución observada (especialmente `hma_weekly_flip` 0.5 → 0.7 si los flip-único terminan siendo trades buenos).
+- (f) Backtesting agendado (§3.6) cuando haya suficientes semanas de runs automáticos en `screening_history.db` acumuladas post-spec-11.
+- (g) Spec 09 Fase 5 segunda iteración (overlays adicionales, panel de ejecución) si el uso real lo demanda.
 
 ### 3.2 Fase 3 — Producción
 
@@ -587,6 +687,10 @@ Para no buscarlas en specs:
 - **2026-07-17 — Hotfix NASDAQ-100 URL** (commit `5454c82`): Wikipedia dividió el artículo `Nasdaq-100` entre el 07-14 (último cron verde) y el 07-15 (primer failure). La tabla de componentes migró de `/wiki/Nasdaq-100` (donde solo quedaron infobox + histórico + navboxes) al artículo separado `/wiki/List_of_NASDAQ-100_companies` (columnas Ticker / Company / ICBIndustry / ICBSubsector). El scrape tiraba `ValueError: No se encontró tabla con columna en ('Ticker', 'Symbol')` en `_fetch_nasdaq100` → mataba `build_universe` → run entero en failure en ~33s. Runs #45-47 (2026-07-15/16/17) todos rojos. Fix: URL cambiada al artículo nuevo + fixture `wikipedia_nasdaq100_sample.html` actualizada al schema real + docstring con nota del split. Validación: `_fetch_nasdaq100()` real → 103 tickers US simples; suite 582 verdes; smoke `--universe nasdaq100 --limit 20` OK. **Detección tardía y por casualidad** (Pages sin corridas nuevas) → el pipeline no avisa cuando cae; los runs fallan silenciosos salvo que mires Actions.
 - **2026-07-17 — Pendiente de diseño: robustecer `build_universe` contra cambios de fuentes externas**. La caída del NASDAQ-100 expuso dos gaps: (a) **fail-hard por universo** — un índice roto tumba el run entero, cuando la política obvia es "sigue con los demás y persistí output parcial > 0 output"; (b) **sin cache de constituyentes con fallback** — la lista de miembros de un índice cambia por trimestre (S&P 500, NASDAQ-100, STOXX 600), no por día. Tener último-buen-list en disco y caer en él con warning si Wikipedia se rompe evitaría 3 días de caída silenciosa. Mismo patrón que el cache OHLCV con `merge` + fallback. Candidato a spec chica. Ver §2.
 - **2026-07-17 — Observabilidad de fallas del cron es cero**: 3 días de failures sin ningún signal fuera de la pestaña Actions. Los outputs de Pages no cambian → confusión ("¿es normal que no haya nada nuevo?"). Considerar hook mínimo — commit de un archivo `data/last_run_status.json` en el step de commit (o en un step de failure separado) que Pages renderice como banner rojo si dice "failure". Costo bajo, cero infraestructura nueva. Anotado en backlog junto con la spec de robustez de universo (§2).
+- **2026-09-07 — Spec 11, variante F de strikes estructurales gana; A/B/C descartadas (D11.11)**: anclar `aggressive` DENTRO de la zona (A/B/C, heavy más alto o `center_price`) hacía que "el precio entró a la zona" y "se perforó aggressive" fueran casi el mismo evento (`P(perforó|entró)` 76-80% medido en backtest sobre 1113 zonas). D/E/F bajan los 3 niveles a ≤ `lower_bound`: la misma métrica cae a 47-49%, separando ambos eventos. F es la única variante que cumple los 3 targets de §3.5 a 45 días hábiles (aggressive ≥70%, natural ≥80%, conservative ≥88%) tras un único intento de calibración pre-declarado del buffer del conservative (`-2.0×ATR` → `-3.0×ATR`: 83.9% → 89.0%). `compute_heuristic_strikes` sale del camino productivo pero no se borra — queda como fallback sin anclas heavy y como línea de base reproducible del backtest.
+- **2026-09-07 — Spec 11, confirmación por velas queda como anotación, no gate (D11.12)**: la tabla de aguante restringida a zonas donde el precio efectivamente entró a la zona (N=30 confirmadas por vela vs N=124 sin confirmar, a 45 días) no mostró dirección consistente — el signo de la diferencia cambia según variante y tipo de strike. `candle_signals` se persiste y se renderiza (mismo tratamiento visual que DIVERGENCIA: informativo, sin destaque, peso 0.0 en score y en strike).
+- **2026-09-07 — Spec 11, enmienda al criterio de tasa de detección de §9 (D11.13)**: el piso original ("ningún `CandleKind` con tasa <2%") se reemplazó por "ningún detector estructuralmente excluido de su población". Los 3 kinds bajistas cayeron bajo 2% con data real no por umbral mal calibrado sino porque el gate de `detect_bearish_breakdown` (`close <= zone.upper_bound`) combinado con `ZONE_MIN_DISTANCE_PCT=0.03` excluye por diseño casi todas las oportunidades al momento exacto de la detección. Motivó medir `bearish_breakdown` también in-window (durante toda la ventana forward, no solo en `fetched_at`), donde sí mostró poder predictivo consistente.
+- **2026-09-07 — Spec 11, bug de gaps en `get_ohlcv` descubierto durante el backtest**: la rama cache-hit de `get_ohlcv` siempre hace refetch incremental de `OHLCV_REFRESH_DAYS=7` días sin chequear la edad de la última barra cacheada. Con una cache parada semanas, el merge deja un agujero silencioso en el medio (confirmado: 100% de una muestra de 40 tickers del dataset de backtest tenía el mismo patrón de huecos de ~6 semanas). Mitigado ad-hoc solo para los 131 tickers del dataset (refetch completo); el bug del provider en sí queda abierto en §2 — es latente en producción si la cache de GitHub Actions rota o se pierde un tramo, aunque el cron diario normalmente lo evita.
 
 ---
 

@@ -79,6 +79,16 @@ STRIKE_GRID_GBP_PENCE: tuple[tuple[float, float], ...] = (
 
 STRIKE_GRID_FALLBACK_PCT: float = 0.01
 
+# === Strikes estructurales — buffers ATR por variante (spec 11 §3.3) ===
+# Espeja literal la tabla de §3.3: por variante, cuánto ATR se resta de cada nivel por encima
+# de su ancla base (heavy_lowest/heavy_highest/lower_bound/center_price según variante). 0.0
+# significa "el nivel es el ancla misma" — el efecto "hacia abajo" lo aporta el floor-to-grid.
+STRUCTURAL_STRIKE_BUFFERS_ATR: dict[str, dict[str, float]] = {
+    "A": {"conservative": 0.25, "natural": 0.25, "aggressive": 0.0},
+    "B": {"conservative": 0.5, "natural": 0.0, "aggressive": 0.1},
+    "C": {"conservative": 0.5, "natural": 0.1, "aggressive": 0.0},
+}
+
 # === Mini-chart SVG (spec 07) ===
 MINI_CHART_WIDTH: int = 480
 MINI_CHART_HEIGHT: int = 200
